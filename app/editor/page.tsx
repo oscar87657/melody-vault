@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Note, Pattern, PatternType, MOOD_TAGS, USE_TAGS, ROOT_NOTES, SCALES } from '@/types'
+import { parseProgression, chordToNotes } from '@/lib/chord'
 import { createClient } from '@/lib/supabase'
 import { downloadMidi, downloadWav } from '@/lib/midi'
 import { ChevronLeft, Download, Save, Trash2, Pencil, MousePointer2, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown } from 'lucide-react'
@@ -92,6 +93,8 @@ function EditorContent() {
   const [selectedIndices, setSelectedIndices] = useState<number[]>([])
   const [keyRoot, setKeyRoot] = useState<number | null>(null)
   const [keyScaleIdx, setKeyScaleIdx] = useState(0)
+  const [progressionStr, setProgressionStr] = useState('')
+  const [progressionLen, setProgressionLen] = useState(4)
 
   // skip the load-fetch for ids we just created locally (avoids round-trip after auto-save insert)
   const fetchedIdRef = useRef<string | null>(null)
@@ -121,6 +124,21 @@ function EditorContent() {
     commitNotes()
     setCursorBeat(prev => prev + duration)
   }, [setNotes, commitNotes])
+
+  const addChordProgression = useCallback((str: string, beatsPerChord: number) => {
+    const { chords, failed } = parseProgression(str)
+    if (failed.length > 0) { alert(`해석 실패: ${failed.join(', ')}`); return }
+    if (chords.length === 0) return
+    let curBeat = cursorBeat
+    const newNotes: Note[] = []
+    chords.forEach(c => {
+      newNotes.push(...chordToNotes(c, curBeat, beatsPerChord))
+      curBeat += beatsPerChord
+    })
+    setNotes(prev => [...prev, ...newNotes])
+    commitNotes()
+    setCursorBeat(curBeat)
+  }, [cursorBeat, setNotes, commitNotes])
 
   // VISIBLE_MIN_PITCH=36 (C2), VISIBLE_MAX_PITCH=96 (C7) — kept in sync with PianoRoll
   const transpose = useCallback((semitones: number) => {
@@ -331,6 +349,32 @@ function EditorContent() {
                 </button>
               </div>
             </div>
+          </div>
+
+          {/* Chord progression — text input */}
+          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">코드 진행 빠른 입력</p>
+            <input
+              value={progressionStr}
+              onChange={e => setProgressionStr(e.target.value)}
+              placeholder="예: Am F C G"
+              className="w-full rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+              onKeyDown={e => { if (e.key === 'Enter') { addChordProgression(progressionStr, progressionLen); setProgressionStr('') } }}
+            />
+            <div className="flex gap-1">
+              {[{label:'1박', val:1}, {label:'2박', val:2}, {label:'1마디', val:4}, {label:'2마디', val:8}].map(b => (
+                <button key={b.val} onClick={() => setProgressionLen(b.val)}
+                  className={`flex-1 rounded py-0.5 text-[10px] transition-colors ${progressionLen === b.val ? 'bg-green-500 text-black' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'}`}>{b.label}</button>
+              ))}
+            </div>
+            <button
+              onClick={() => { addChordProgression(progressionStr, progressionLen); setProgressionStr('') }}
+              disabled={!progressionStr.trim()}
+              className="w-full rounded bg-green-500 py-1 text-xs font-bold text-black hover:bg-green-400 disabled:opacity-50"
+            >
+              + 추가
+            </button>
+            <p className="text-[10px] text-zinc-600">공백/-/, 로 구분. Am Dm7 G7 Cmaj7</p>
           </div>
 
           {/* Chord input */}

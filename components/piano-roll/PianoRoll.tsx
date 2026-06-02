@@ -35,13 +35,26 @@ interface PianoRollProps {
   isDrum?: boolean
 }
 
+// GM Percussion key map (35–57 visible in drum mode)
 const DRUM_NAMES: Record<number, string> = {
-  35: 'Kick A', 36: 'Kick',
-  37: 'Stick', 39: 'Clap',
-  38: 'Snare', 40: 'Snare E',
-  41: 'Tom L', 43: 'Tom L', 45: 'Tom M', 47: 'Tom M', 48: 'Tom H', 50: 'Tom H',
-  42: 'HH Cl', 44: 'HH Pd', 46: 'HH Op',
-  49: 'Crash', 51: 'Ride', 57: 'Crash2',
+  35: 'Kick A',     // Acoustic Bass Drum
+  36: 'Kick',       // Bass Drum 1
+  37: 'Side Stick', // Side Stick
+  38: 'Snare',      // Acoustic Snare
+  39: 'Clap',       // Hand Clap
+  40: 'Snare E',    // Electric Snare
+  41: 'Floor L',    // Low Floor Tom
+  42: 'HH Cl',      // Closed Hi-Hat
+  43: 'Floor H',    // High Floor Tom
+  44: 'HH Pd',      // Pedal Hi-Hat
+  45: 'Tom L',      // Low Tom
+  46: 'HH Op',      // Open Hi-Hat
+  47: 'Tom LM',     // Low-Mid Tom
+  48: 'Tom HM',     // Hi-Mid Tom
+  49: 'Crash 1',    // Crash Cymbal 1
+  50: 'Tom H',      // High Tom
+  51: 'Ride',       // Ride Cymbal 1
+  57: 'Crash 2',    // Crash Cymbal 2
 }
 
 type DragState =

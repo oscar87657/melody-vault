@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { Pattern, MOOD_TAGS, USE_TAGS } from '@/types'
 import { downloadMidi } from '@/lib/midi'
-import { Plus, Download, Music, LogOut, Search, Pencil } from 'lucide-react'
+import { Plus, Download, Music, LogOut, Search, Pencil, Copy } from 'lucide-react'
 import dynamic from 'next/dynamic'
 
 const PianoRoll = dynamic(() => import('@/components/piano-roll/PianoRoll'), { ssr: false })
@@ -42,6 +42,30 @@ export default function LibraryPage() {
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/auth')
+  }
+
+  const handleDuplicate = async (p: Pattern) => {
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const now = new Date().toISOString()
+    const { data, error } = await supabase
+      .from('patterns')
+      .insert({
+        user_id: user.id,
+        name: `${p.name} (복사본)`,
+        type: p.type,
+        tags: p.tags,
+        notes: p.notes,
+        bpm: p.bpm,
+        measures: p.measures,
+        created_at: now,
+        updated_at: now,
+      })
+      .select()
+      .single()
+    if (error) { console.error('복제 실패:', error.message); return }
+    if (data) setPatterns(prev => [data as Pattern, ...prev])
   }
 
   const toggleFilterTag = (tag: string) => {
@@ -175,6 +199,7 @@ export default function LibraryPage() {
                   onEdit={() => router.push(`/editor?id=${pattern.id}`)}
                   onPreview={() => setPreview(preview?.id === pattern.id ? null : pattern)}
                   onDownload={() => downloadMidi(pattern)}
+                  onDuplicate={() => handleDuplicate(pattern)}
                   isPreviewOpen={preview?.id === pattern.id}
                 />
               ))}
@@ -203,12 +228,13 @@ export default function LibraryPage() {
 }
 
 function PatternCard({
-  pattern, onEdit, onPreview, onDownload, isPreviewOpen
+  pattern, onEdit, onPreview, onDownload, onDuplicate, isPreviewOpen
 }: {
   pattern: Pattern
   onEdit: () => void
   onPreview: () => void
   onDownload: () => void
+  onDuplicate: () => void
   isPreviewOpen: boolean
 }) {
   const moodTags = pattern.tags.filter(t => MOOD_TAGS.includes(t))
@@ -224,10 +250,13 @@ function PatternCard({
           </p>
         </div>
         <div className="flex gap-1">
-          <button onClick={onEdit} className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white">
+          <button onClick={onEdit} title="편집" className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white">
             <Pencil size={14} />
           </button>
-          <button onClick={onDownload} className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white">
+          <button onClick={onDuplicate} title="복제" className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white">
+            <Copy size={14} />
+          </button>
+          <button onClick={onDownload} title="MIDI 다운로드" className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white">
             <Download size={14} />
           </button>
         </div>

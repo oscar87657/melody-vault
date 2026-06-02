@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { Pattern, Folder, MOOD_TAGS, USE_TAGS } from '@/types'
 import { downloadMidi, downloadWav, importMidiFile } from '@/lib/midi'
-import { Plus, Download, Music, LogOut, Search, Pencil, Copy, Upload, Share2, Folder as FolderIcon, FolderPlus } from 'lucide-react'
+import { buildSamplePatterns } from '@/lib/sample-patterns'
+import { Plus, Download, Music, LogOut, Search, Pencil, Copy, Upload, Share2, Folder as FolderIcon, FolderPlus, Sparkles } from 'lucide-react'
 import dynamic from 'next/dynamic'
 
 const PianoRoll = dynamic(() => import('@/components/piano-roll/PianoRoll'), { ssr: false })
@@ -133,6 +134,30 @@ export default function LibraryPage() {
     }
   }, [handleImport])
 
+  const [seeding, setSeeding] = useState(false)
+  const handleAddSamples = async () => {
+    const samples = buildSamplePatterns()
+    if (!confirm(`샘플 패턴 ${samples.length}개를 라이브러리에 추가할까요?\n(코드 5 + 멜로디 3 + 드럼 4)`)) return
+    setSeeding(true)
+    try {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push('/auth'); return }
+      const now = new Date().toISOString()
+      const payload = samples.map(s => ({
+        ...s,
+        user_id: user.id,
+        created_at: now,
+        updated_at: now,
+      }))
+      const { data, error } = await supabase.from('patterns').insert(payload).select()
+      if (error) { alert('샘플 추가 실패: ' + error.message); return }
+      if (data) setPatterns(prev => [...(data as Pattern[]), ...prev])
+    } finally {
+      setSeeding(false)
+    }
+  }
+
   const handleShare = async (p: Pattern) => {
     const supabase = createClient()
     let token = p.share_token
@@ -216,6 +241,14 @@ export default function LibraryPage() {
           </div>
 
           <div className="flex gap-2">
+            <button
+              onClick={handleAddSamples}
+              disabled={seeding}
+              title="샘플 패턴 12개 추가 (코드/멜로디/드럼)"
+              className="flex items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-300 hover:border-zinc-500 hover:text-white disabled:opacity-50"
+            >
+              <Sparkles size={14} /> {seeding ? '추가 중...' : '샘플 추가'}
+            </button>
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={importing}
@@ -338,13 +371,24 @@ export default function LibraryPage() {
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-20 text-zinc-600">
               <Music size={40} />
-              <p>저장된 패턴이 없어요.</p>
-              <button
-                onClick={() => router.push('/editor')}
-                className="rounded bg-green-500 px-4 py-2 text-sm font-semibold text-black hover:bg-green-400"
-              >
-                첫 패턴 만들기
-              </button>
+              <p>{patterns.length === 0 ? '저장된 패턴이 없어요.' : '필터에 맞는 패턴이 없어요.'}</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => router.push('/editor')}
+                  className="rounded bg-green-500 px-4 py-2 text-sm font-semibold text-black hover:bg-green-400"
+                >
+                  첫 패턴 만들기
+                </button>
+                {patterns.length === 0 && (
+                  <button
+                    onClick={handleAddSamples}
+                    disabled={seeding}
+                    className="flex items-center gap-1.5 rounded border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:border-zinc-500 hover:text-white disabled:opacity-50"
+                  >
+                    <Sparkles size={14} /> {seeding ? '추가 중...' : '샘플 12개 가져오기'}
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">

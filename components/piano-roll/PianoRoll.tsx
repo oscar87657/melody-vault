@@ -25,6 +25,7 @@ interface PianoRollProps {
   cursorBeat?: number
   onCursorChange?: (beat: number) => void
   playheadBeat?: number | null
+  onSelectionChange?: (indices: number[]) => void
 }
 
 type DragState =
@@ -59,7 +60,7 @@ function noteRect(note: Note) {
 export default function PianoRoll({
   notes, measures, onChange, onCommit, snap = DEFAULT_SNAP,
   isReadOnly = false, tool = 'draw', cursorBeat, onCursorChange,
-  playheadBeat = null,
+  playheadBeat = null, onSelectionChange,
 }: PianoRollProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const dragRef = useRef<DragState>({ kind: 'none' })
@@ -69,6 +70,9 @@ export default function PianoRoll({
 
   useEffect(() => { notesRef.current = notes }, [notes])
   useEffect(() => { selectedRef.current = selected }, [selected])
+  useEffect(() => {
+    if (onSelectionChange) onSelectionChange(Array.from(selected).sort((a, b) => a - b))
+  }, [selected, onSelectionChange])
 
   const totalBeats = measures * 4
   const canvasWidth = KEY_WIDTH + totalBeats * BEAT_WIDTH
@@ -230,20 +234,23 @@ export default function PianoRoll({
       ctx.beginPath(); ctx.moveTo(x, RULER_HEIGHT); ctx.lineTo(x, canvasHeight); ctx.stroke()
     }
 
-    // === NOTES ===
+    // === NOTES (alpha encodes velocity 0..127 → 0.35..1.0) ===
     notesRef.current.forEach((note, i) => {
       const { x, y, w, h } = noteRect(note)
       const isSel = selected.has(i)
+      const alpha = 0.35 + (Math.max(0, Math.min(127, note.velocity)) / 127) * 0.65
+      ctx.globalAlpha = alpha
       ctx.fillStyle = isSel ? '#86efac' : '#4ade80'
       ctx.beginPath(); ctx.roundRect(x + 1, y + 0.5, w, h, 2); ctx.fill()
+      if (!isReadOnly) {
+        ctx.fillStyle = isSel ? '#4ade80' : '#16a34a'
+        ctx.fillRect(x + w - 4, y + 1, 4, h - 1)
+      }
+      ctx.globalAlpha = 1
       if (isSel) {
         ctx.strokeStyle = '#fff'
         ctx.lineWidth = 1
         ctx.beginPath(); ctx.roundRect(x + 1, y + 0.5, w, h, 2); ctx.stroke()
-      }
-      if (!isReadOnly) {
-        ctx.fillStyle = isSel ? '#4ade80' : '#16a34a'
-        ctx.fillRect(x + w - 4, y + 1, 4, h - 1)
       }
     })
 

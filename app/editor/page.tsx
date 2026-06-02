@@ -89,6 +89,7 @@ function EditorContent() {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(!!initialPatternId)
   const [playheadBeat, setPlayheadBeat] = useState<number | null>(null)
+  const [selectedIndices, setSelectedIndices] = useState<number[]>([])
 
   // skip the load-fetch for ids we just created locally (avoids round-trip after auto-save insert)
   const fetchedIdRef = useRef<string | null>(null)
@@ -127,6 +128,14 @@ function EditorContent() {
     })
     commitNotes()
   }, [setNotes, commitNotes])
+
+  const setSelectedVelocity = useCallback((v: number) => {
+    setNotes(prev => prev.map((n, i) => selectedIndices.includes(i) ? { ...n, velocity: v } : n))
+  }, [setNotes, selectedIndices])
+
+  const selectedVelocity = selectedIndices[0] !== undefined && notes[selectedIndices[0]]
+    ? notes[selectedIndices[0]].velocity
+    : 100
 
   const toggleTag = (tag: string) =>
     setTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])
@@ -312,6 +321,23 @@ function EditorContent() {
             maxBeat={measures * 4}
           />
 
+          {/* Velocity (강약) — only when notes are selected */}
+          {selectedIndices.length > 0 && (
+            <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">강약 (벨로시티)</p>
+                <span className="text-xs font-bold text-green-400">{selectedVelocity}</span>
+              </div>
+              <input
+                type="range" min={1} max={127} step={1} value={selectedVelocity}
+                onChange={e => setSelectedVelocity(Number(e.target.value))}
+                onPointerUp={() => commitNotes()}
+                className="w-full accent-green-500"
+              />
+              <p className="text-[10px] text-zinc-600">선택한 {selectedIndices.length}개 노트의 세기 (1~127)</p>
+            </div>
+          )}
+
           {/* Transpose */}
           <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">트랜스포즈</p>
@@ -384,6 +410,7 @@ function EditorContent() {
               cursorBeat={cursorBeat}
               onCursorChange={setCursorBeat}
               playheadBeat={playheadBeat}
+              onSelectionChange={setSelectedIndices}
             />
           </div>
           <p className="text-xs text-zinc-600">

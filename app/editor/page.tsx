@@ -71,9 +71,10 @@ function useUndoable<T>(initial: T) {
 function EditorContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const patternId = searchParams.get('id')
+  const initialPatternId = searchParams.get('id')
   const defaultType = (searchParams.get('type') as PatternType) ?? 'melody'
 
+  const [patternId, setPatternId] = useState<string | null>(initialPatternId)
   const [name, setName] = useState('새 패턴')
   const [type, setType] = useState<PatternType>(defaultType)
   const notesHistory = useUndoable<Note[]>([])
@@ -86,12 +87,16 @@ function EditorContent() {
   const [cursorBeat, setCursorBeat] = useState(0)
   const [tool, setTool] = useState<Tool>('draw')
   const [saving, setSaving] = useState(false)
-  const [loading, setLoading] = useState(!!patternId)
+  const [loading, setLoading] = useState(!!initialPatternId)
   const [playheadBeat, setPlayheadBeat] = useState<number | null>(null)
+
+  // skip the load-fetch for ids we just created locally (avoids round-trip after auto-save insert)
+  const fetchedIdRef = useRef<string | null>(null)
 
   const resetNotes = notesHistory.reset
   useEffect(() => {
-    if (!patternId) return
+    if (!patternId || fetchedIdRef.current === patternId) return
+    fetchedIdRef.current = patternId
     const supabase = createClient()
     supabase.from('patterns').select('*').eq('id', patternId).single()
       .then(({ data, error }: { data: Pattern | null; error: { message: string } | null }) => {
@@ -121,14 +126,18 @@ function EditorContent() {
     setSaving(true)
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/auth'); return }
+    if (!user) { router.push('/auth'); setSaving(false); return }
 
     const payload = { name, type, notes, bpm, measures, tags, user_id: user.id, updated_at: new Date().toISOString() }
     if (patternId) {
       await supabase.from('patterns').update(payload).eq('id', patternId)
     } else {
       const { data } = await supabase.from('patterns').insert({ ...payload, created_at: new Date().toISOString() }).select().single()
-      if (data) router.replace(`/editor?id=${data.id}`)
+      if (data) {
+        fetchedIdRef.current = data.id  // don't refetch what we just wrote
+        setPatternId(data.id)
+        window.history.replaceState(null, '', `/editor?id=${data.id}`)
+      }
     }
     setSaving(false)
   }, [name, type, notes, bpm, measures, tags, patternId, router])
@@ -146,6 +155,16 @@ function EditorContent() {
   useEffect(() => { handleSaveRef.current = handleSave }, [handleSave])
   useEffect(() => { undoRef.current = notesHistory.undo }, [notesHistory.undo])
   useEffect(() => { redoRef.current = notesHistory.redo }, [notesHistory.redo])
+
+  // Auto-save: 2초간 변경 없으면 저장
+  const skipAutoSaveRef = useRef(true)  // 첫 mount + 초기 데이터 로드 후 한 번은 skip
+  useEffect(() => {
+    if (loading) return
+    if (skipAutoSaveRef.current) { skipAutoSaveRef.current = false; return }
+    if (!patternId && notes.length === 0) return  // 빈 새 패턴은 생성하지 않음
+    const t = setTimeout(() => { handleSaveRef.current() }, 2000)
+    return () => clearTimeout(t)
+  }, [name, type, notes, bpm, measures, tags, loading, patternId])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -194,7 +213,10 @@ function EditorContent() {
           className="flex-1 bg-transparent text-lg font-semibold focus:outline-none"
           placeholder="패턴 이름..."
         />
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-500 min-w-[70px] text-right">
+            {saving ? '저장 중...' : patternId ? '자동 저장됨' : '아직 저장 안 됨'}
+          </span>
           {patternId && (
             <button onClick={handleDelete} className="rounded p-1.5 text-red-500 hover:bg-zinc-800">
               <Trash2 size={16} />

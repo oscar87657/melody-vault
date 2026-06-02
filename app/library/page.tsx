@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { Pattern, MOOD_TAGS, USE_TAGS } from '@/types'
 import { downloadMidi, downloadWav, importMidiFile } from '@/lib/midi'
-import { Plus, Download, Music, LogOut, Search, Pencil, Copy, Upload } from 'lucide-react'
+import { Plus, Download, Music, LogOut, Search, Pencil, Copy, Upload, Share2 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 
 const PianoRoll = dynamic(() => import('@/components/piano-roll/PianoRoll'), { ssr: false })
@@ -96,6 +96,24 @@ export default function LibraryPage() {
       window.removeEventListener('drop', onDrop)
     }
   }, [handleImport])
+
+  const handleShare = async (p: Pattern) => {
+    const supabase = createClient()
+    let token = p.share_token
+    if (!token) {
+      token = crypto.randomUUID()
+      const { error } = await supabase.from('patterns').update({ share_token: token }).eq('id', p.id)
+      if (error) { console.error('공유 토큰 생성 실패:', error.message); alert('공유 링크 생성 실패: ' + error.message); return }
+      setPatterns(prev => prev.map(x => x.id === p.id ? { ...x, share_token: token } : x))
+    }
+    const url = `${window.location.origin}/share/${token}`
+    try {
+      await navigator.clipboard.writeText(url)
+      alert(`공유 링크가 복사되었습니다:\n${url}`)
+    } catch {
+      prompt('공유 링크 (복사하세요):', url)
+    }
+  }
 
   const handleDuplicate = async (p: Pattern) => {
     const supabase = createClient()
@@ -277,6 +295,7 @@ export default function LibraryPage() {
                     catch (err) { console.error(err); alert('WAV 렌더링 실패') }
                   }}
                   onDuplicate={() => handleDuplicate(pattern)}
+                  onShare={() => handleShare(pattern)}
                   isPreviewOpen={preview?.id === pattern.id}
                 />
               ))}
@@ -316,7 +335,7 @@ export default function LibraryPage() {
 }
 
 function PatternCard({
-  pattern, onEdit, onPreview, onDownload, onDownloadWav, onDuplicate, isPreviewOpen
+  pattern, onEdit, onPreview, onDownload, onDownloadWav, onDuplicate, onShare, isPreviewOpen
 }: {
   pattern: Pattern
   onEdit: () => void
@@ -324,6 +343,7 @@ function PatternCard({
   onDownload: () => void
   onDownloadWav: () => void
   onDuplicate: () => void
+  onShare: () => void
   isPreviewOpen: boolean
 }) {
   const [busy, setBusy] = useState(false)
@@ -356,6 +376,10 @@ function PatternCard({
             className="rounded p-1 text-[9px] font-bold text-zinc-500 hover:bg-zinc-800 hover:text-white disabled:opacity-50"
           >
             {busy ? '...' : 'WAV'}
+          </button>
+          <button onClick={onShare} title="공유 링크 복사"
+            className={`rounded p-1 hover:bg-zinc-800 hover:text-white ${pattern.share_token ? 'text-green-400' : 'text-zinc-500'}`}>
+            <Share2 size={14} />
           </button>
         </div>
       </div>

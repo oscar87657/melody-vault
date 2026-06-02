@@ -16,6 +16,7 @@ export interface Pattern {
   notes: Note[]
   bpm: number
   measures: number    // number of measures
+  share_token?: string | null
   created_at: string
   updated_at: string
 }

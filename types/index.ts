@@ -1,4 +1,11 @@
-export type PatternType = 'chord' | 'melody'
+export type PatternType = 'chord' | 'melody' | 'drum'
+
+export interface Folder {
+  id: string
+  user_id: string
+  name: string
+  created_at: string
+}
 
 export interface Note {
   pitch: number       // MIDI note number (0-127)
@@ -10,6 +17,7 @@ export interface Note {
 export interface Pattern {
   id: string
   user_id: string
+  folder_id?: string | null
   name: string
   type: PatternType
   tags: string[]

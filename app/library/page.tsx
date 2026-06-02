@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
-import { Pattern, MOOD_TAGS, USE_TAGS } from '@/types'
+import { Pattern, Folder, MOOD_TAGS, USE_TAGS } from '@/types'
 import { downloadMidi, downloadWav, importMidiFile } from '@/lib/midi'
-import { Plus, Download, Music, LogOut, Search, Pencil, Copy, Upload, Share2 } from 'lucide-react'
+import { Plus, Download, Music, LogOut, Search, Pencil, Copy, Upload, Share2, Folder as FolderIcon, FolderPlus } from 'lucide-react'
 import dynamic from 'next/dynamic'
 
 const PianoRoll = dynamic(() => import('@/components/piano-roll/PianoRoll'), { ssr: false })
@@ -13,9 +13,11 @@ const PianoRoll = dynamic(() => import('@/components/piano-roll/PianoRoll'), { s
 export default function LibraryPage() {
   const router = useRouter()
   const [patterns, setPatterns] = useState<Pattern[]>([])
+  const [folders, setFolders] = useState<Folder[]>([])
   const [loading, setLoading] = useState(true)
   const [filterTags, setFilterTags] = useState<string[]>([])
-  const [filterType, setFilterType] = useState<'all' | 'chord' | 'melody'>('all')
+  const [filterType, setFilterType] = useState<'all' | 'chord' | 'melody' | 'drum'>('all')
+  const [filterFolder, setFilterFolder] = useState<string | 'all' | 'none'>('all')
   const [search, setSearch] = useState('')
   const [preview, setPreview] = useState<Pattern | null>(null)
 
@@ -23,20 +25,54 @@ export default function LibraryPage() {
     const supabase = createClient()
     supabase.auth.getUser().then(({ data: { user } }: { data: { user: { id: string } | null } }) => {
       if (!user) { router.push('/auth'); return }
-      supabase.from('patterns').select('*').eq('user_id', user.id).order('updated_at', { ascending: false })
-        .then(({ data, error }: { data: Pattern[] | null; error: { message: string } | null }) => {
-          if (error) console.error('패턴 목록 불러오기 실패:', error.message)
-          setPatterns(data ?? [])
-          setLoading(false)
-        }, (err: unknown) => {
-          console.error('패턴 목록 불러오기 실패:', err)
-          setLoading(false)
-        })
+      Promise.all([
+        supabase.from('patterns').select('*').eq('user_id', user.id).order('updated_at', { ascending: false }),
+        supabase.from('folders').select('*').eq('user_id', user.id).order('name'),
+      ]).then(([pats, fols]) => {
+        const pd = pats as { data: Pattern[] | null; error: { message: string } | null }
+        const fd = fols as { data: Folder[] | null; error: { message: string } | null }
+        if (pd.error) console.error('패턴 목록 실패:', pd.error.message)
+        if (fd.error) console.error('폴더 목록 실패:', fd.error.message)
+        setPatterns(pd.data ?? [])
+        setFolders(fd.data ?? [])
+        setLoading(false)
+      }, (err: unknown) => {
+        console.error('데이터 로드 실패:', err)
+        setLoading(false)
+      })
     }, (err: unknown) => {
       console.error('인증 확인 실패:', err)
       setLoading(false)
     })
   }, [router])
+
+  const handleCreateFolder = async () => {
+    const name = prompt('새 폴더 이름:')?.trim()
+    if (!name) return
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data, error } = await supabase.from('folders').insert({ user_id: user.id, name }).select().single()
+    if (error) { alert('폴더 생성 실패: ' + error.message); return }
+    if (data) setFolders(prev => [...prev, data as Folder].sort((a, b) => a.name.localeCompare(b.name)))
+  }
+
+  const handleDeleteFolder = async (folderId: string) => {
+    if (!confirm('이 폴더를 삭제할까요? 안의 패턴은 폴더 없음으로 이동됩니다.')) return
+    const supabase = createClient()
+    const { error } = await supabase.from('folders').delete().eq('id', folderId)
+    if (error) { alert('폴더 삭제 실패: ' + error.message); return }
+    setFolders(prev => prev.filter(f => f.id !== folderId))
+    setPatterns(prev => prev.map(p => p.folder_id === folderId ? { ...p, folder_id: null } : p))
+    if (filterFolder === folderId) setFilterFolder('all')
+  }
+
+  const handleMoveToFolder = async (patternId: string, folderId: string | null) => {
+    const supabase = createClient()
+    const { error } = await supabase.from('patterns').update({ folder_id: folderId }).eq('id', patternId)
+    if (error) { alert('이동 실패: ' + error.message); return }
+    setPatterns(prev => prev.map(p => p.id === patternId ? { ...p, folder_id: folderId } : p))
+  }
 
   const handleLogout = async () => {
     const supabase = createClient()
@@ -152,6 +188,8 @@ export default function LibraryPage() {
 
   const filtered = patterns.filter(p => {
     if (filterType !== 'all' && p.type !== filterType) return false
+    if (filterFolder === 'none' && p.folder_id) return false
+    if (filterFolder !== 'all' && filterFolder !== 'none' && p.folder_id !== filterFolder) return false
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false
     if (filterTags.length > 0 && !filterTags.every(t => p.tags.includes(t))) return false
     return true
@@ -214,9 +252,36 @@ export default function LibraryPage() {
       <div className="mx-auto max-w-7xl flex gap-4 p-4">
         {/* Filters sidebar */}
         <aside className="w-48 shrink-0 space-y-4">
+          {/* Folders */}
+          <div className="rounded-lg border border-zinc-800 p-3 space-y-1">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase text-zinc-500">폴더</p>
+              <button onClick={handleCreateFolder} title="새 폴더" className="text-zinc-500 hover:text-white">
+                <FolderPlus size={12} />
+              </button>
+            </div>
+            <button onClick={() => setFilterFolder('all')}
+              className={`block w-full rounded px-2 py-1 text-left text-sm transition-colors ${filterFolder === 'all' ? 'bg-green-500 text-black font-medium' : 'text-zinc-400 hover:bg-zinc-800'}`}>
+              전체
+            </button>
+            <button onClick={() => setFilterFolder('none')}
+              className={`block w-full rounded px-2 py-1 text-left text-sm transition-colors ${filterFolder === 'none' ? 'bg-green-500 text-black font-medium' : 'text-zinc-400 hover:bg-zinc-800'}`}>
+              (폴더 없음)
+            </button>
+            {folders.map(f => (
+              <div key={f.id} className="group flex items-center gap-1">
+                <button onClick={() => setFilterFolder(f.id)}
+                  className={`flex flex-1 items-center gap-1 rounded px-2 py-1 text-left text-sm transition-colors ${filterFolder === f.id ? 'bg-green-500 text-black font-medium' : 'text-zinc-400 hover:bg-zinc-800'}`}>
+                  <FolderIcon size={12} /> {f.name}
+                </button>
+                <button onClick={() => handleDeleteFolder(f.id)} className="opacity-0 transition-opacity group-hover:opacity-100 text-zinc-600 hover:text-red-400 text-xs px-1">×</button>
+              </div>
+            ))}
+          </div>
+
           <div className="rounded-lg border border-zinc-800 p-3 space-y-2">
             <p className="text-xs font-semibold uppercase text-zinc-500">타입</p>
-            {(['all', 'chord', 'melody'] as const).map(t => (
+            {(['all', 'chord', 'melody', 'drum'] as const).map(t => (
               <button
                 key={t}
                 onClick={() => setFilterType(t)}
@@ -224,7 +289,7 @@ export default function LibraryPage() {
                   filterType === t ? 'bg-green-500 text-black font-medium' : 'text-zinc-400 hover:bg-zinc-800'
                 }`}
               >
-                {t === 'all' ? '전체' : t === 'chord' ? '코드' : '멜로디'}
+                {t === 'all' ? '전체' : t === 'chord' ? '코드' : t === 'melody' ? '멜로디' : '드럼'}
               </button>
             ))}
           </div>
@@ -296,6 +361,8 @@ export default function LibraryPage() {
                   }}
                   onDuplicate={() => handleDuplicate(pattern)}
                   onShare={() => handleShare(pattern)}
+                  folders={folders}
+                  onMoveToFolder={(fid) => handleMoveToFolder(pattern.id, fid)}
                   isPreviewOpen={preview?.id === pattern.id}
                 />
               ))}
@@ -335,7 +402,8 @@ export default function LibraryPage() {
 }
 
 function PatternCard({
-  pattern, onEdit, onPreview, onDownload, onDownloadWav, onDuplicate, onShare, isPreviewOpen
+  pattern, onEdit, onPreview, onDownload, onDownloadWav, onDuplicate, onShare,
+  folders, onMoveToFolder, isPreviewOpen
 }: {
   pattern: Pattern
   onEdit: () => void
@@ -344,6 +412,8 @@ function PatternCard({
   onDownloadWav: () => void
   onDuplicate: () => void
   onShare: () => void
+  folders: Folder[]
+  onMoveToFolder: (folderId: string | null) => void
   isPreviewOpen: boolean
 }) {
   const [busy, setBusy] = useState(false)
@@ -405,6 +475,16 @@ function PatternCard({
           ))}
         </div>
       )}
+
+      {/* Folder selector */}
+      <select
+        value={pattern.folder_id ?? ''}
+        onChange={e => onMoveToFolder(e.target.value || null)}
+        className="w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs text-zinc-400 focus:border-zinc-600 focus:outline-none"
+      >
+        <option value="">(폴더 없음)</option>
+        {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+      </select>
     </div>
   )
 }

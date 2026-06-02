@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Note, Pattern, PatternType, MOOD_TAGS, USE_TAGS, ROOT_NOTES, SCALES } from '@/types'
 import { createClient } from '@/lib/supabase'
-import { downloadMidi } from '@/lib/midi'
+import { downloadMidi, downloadWav } from '@/lib/midi'
 import { ChevronLeft, Download, Save, Trash2, Pencil, MousePointer2, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown } from 'lucide-react'
 import ChordInput from '@/components/piano-roll/ChordInput'
 import PlaybackControls from '@/components/piano-roll/PlaybackControls'
@@ -218,6 +218,21 @@ function EditorContent() {
     downloadMidi(pattern)
   }
 
+  const [rendering, setRendering] = useState(false)
+  const handleDownloadWav = async () => {
+    if (notes.length === 0) { alert('노트가 없으면 WAV로 내보낼 수 없습니다.'); return }
+    setRendering(true)
+    try {
+      const pattern: Pattern = { id: patternId ?? 'new', user_id: '', name, type, notes, bpm, measures, tags, created_at: '', updated_at: '' }
+      await downloadWav(pattern)
+    } catch (err) {
+      console.error('WAV 렌더링 실패:', err)
+      alert('WAV 렌더링 실패')
+    } finally {
+      setRendering(false)
+    }
+  }
+
   if (loading) return <div className="flex h-screen items-center justify-center text-zinc-400">불러오는 중...</div>
 
   return (
@@ -244,6 +259,9 @@ function EditorContent() {
           )}
           <button onClick={handleDownloadMidi} className="flex items-center gap-1 rounded px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-white">
             <Download size={14} /> MIDI
+          </button>
+          <button onClick={handleDownloadWav} disabled={rendering} className="flex items-center gap-1 rounded px-3 py-1.5 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-white disabled:opacity-50">
+            <Download size={14} /> {rendering ? '렌더링...' : 'WAV'}
           </button>
           <button
             onClick={handleSave} disabled={saving}

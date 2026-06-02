@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { Pattern, MOOD_TAGS, USE_TAGS } from '@/types'
-import { downloadMidi, importMidiFile } from '@/lib/midi'
+import { downloadMidi, downloadWav, importMidiFile } from '@/lib/midi'
 import { Plus, Download, Music, LogOut, Search, Pencil, Copy, Upload } from 'lucide-react'
 import dynamic from 'next/dynamic'
 
@@ -272,6 +272,10 @@ export default function LibraryPage() {
                   onEdit={() => router.push(`/editor?id=${pattern.id}`)}
                   onPreview={() => setPreview(preview?.id === pattern.id ? null : pattern)}
                   onDownload={() => downloadMidi(pattern)}
+                  onDownloadWav={async () => {
+                    try { await downloadWav(pattern) }
+                    catch (err) { console.error(err); alert('WAV 렌더링 실패') }
+                  }}
                   onDuplicate={() => handleDuplicate(pattern)}
                   isPreviewOpen={preview?.id === pattern.id}
                 />
@@ -312,15 +316,17 @@ export default function LibraryPage() {
 }
 
 function PatternCard({
-  pattern, onEdit, onPreview, onDownload, onDuplicate, isPreviewOpen
+  pattern, onEdit, onPreview, onDownload, onDownloadWav, onDuplicate, isPreviewOpen
 }: {
   pattern: Pattern
   onEdit: () => void
   onPreview: () => void
   onDownload: () => void
+  onDownloadWav: () => void
   onDuplicate: () => void
   isPreviewOpen: boolean
 }) {
+  const [busy, setBusy] = useState(false)
   const moodTags = pattern.tags.filter(t => MOOD_TAGS.includes(t))
   const useTags = pattern.tags.filter(t => USE_TAGS.includes(t))
 
@@ -342,6 +348,14 @@ function PatternCard({
           </button>
           <button onClick={onDownload} title="MIDI 다운로드" className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white">
             <Download size={14} />
+          </button>
+          <button
+            onClick={async () => { setBusy(true); try { await onDownloadWav() } finally { setBusy(false) } }}
+            disabled={busy}
+            title="WAV 다운로드 (오디오)"
+            className="rounded p-1 text-[9px] font-bold text-zinc-500 hover:bg-zinc-800 hover:text-white disabled:opacity-50"
+          >
+            {busy ? '...' : 'WAV'}
           </button>
         </div>
       </div>

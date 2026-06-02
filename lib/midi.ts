@@ -67,6 +67,85 @@ function inferIsChord(notes: Note[]): boolean {
   return Math.max(...byBeat.values()) >= 3
 }
 
+// ─── WAV export ───────────────────────────────────────────────────────────
+
+function audioBufferToWav(buffer: AudioBuffer): Blob {
+  const numChannels = buffer.numberOfChannels
+  const sampleRate = buffer.sampleRate
+  const bytesPerSample = 2
+  const dataLength = buffer.length * numChannels * bytesPerSample
+  const fileLength = dataLength + 44
+  const ab = new ArrayBuffer(fileLength)
+  const view = new DataView(ab)
+
+  const writeStr = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
+  }
+
+  writeStr(0, 'RIFF')
+  view.setUint32(4, fileLength - 8, true)
+  writeStr(8, 'WAVE')
+  writeStr(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)               // PCM
+  view.setUint16(22, numChannels, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * numChannels * bytesPerSample, true)
+  view.setUint16(32, numChannels * bytesPerSample, true)
+  view.setUint16(34, 16, true)              // bits per sample
+  writeStr(36, 'data')
+  view.setUint32(40, dataLength, true)
+
+  let offset = 44
+  const channels: Float32Array[] = []
+  for (let ch = 0; ch < numChannels; ch++) channels.push(buffer.getChannelData(ch))
+  for (let i = 0; i < buffer.length; i++) {
+    for (let ch = 0; ch < numChannels; ch++) {
+      const s = Math.max(-1, Math.min(1, channels[ch][i]))
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true)
+      offset += 2
+    }
+  }
+  return new Blob([ab], { type: 'audio/wav' })
+}
+
+export async function renderPatternToWav(pattern: Pattern): Promise<Blob> {
+  if (pattern.notes.length === 0) throw new Error('빈 패턴은 WAV로 내보낼 수 없습니다.')
+  const Tone = await import('tone')
+  const spb = 60 / pattern.bpm
+  const maxEnd = Math.max(...pattern.notes.map(n => n.startBeat + n.duration))
+  const durationSec = maxEnd * spb + 1  // 잔향 여유
+
+  const buffer = await Tone.Offline(({ transport }) => {
+    const synth = new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: 'triangle' },
+      envelope: { attack: 0.005, decay: 0.12, sustain: 0.3, release: 0.4 },
+    }).toDestination()
+    transport.bpm.value = pattern.bpm
+    pattern.notes.forEach(note => {
+      const freq = Tone.Frequency(note.pitch, 'midi').toFrequency()
+      transport.schedule(time => {
+        synth.triggerAttackRelease(freq, note.duration * spb * 0.92, time, note.velocity / 127)
+      }, note.startBeat * spb)
+    })
+    transport.start()
+  }, durationSec)
+
+  return audioBufferToWav(buffer as unknown as AudioBuffer)
+}
+
+export async function downloadWav(pattern: Pattern) {
+  const blob = await renderPatternToWav(pattern)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${safeFilename(pattern.name)}.wav`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ─── MIDI import ──────────────────────────────────────────────────────────
+
 export async function importMidiFile(file: File): Promise<ImportedPattern> {
   const buffer = await file.arrayBuffer()
   const midi = new Midi(buffer)

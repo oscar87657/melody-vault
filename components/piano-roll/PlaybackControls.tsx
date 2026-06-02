@@ -157,9 +157,10 @@ interface PlaybackControlsProps {
   notes: Note[]
   bpm: number
   onBpmChange: (bpm: number) => void
+  onPlayheadChange?: (beat: number | null) => void
 }
 
-export default function PlaybackControls({ notes, bpm, onBpmChange }: PlaybackControlsProps) {
+export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadChange }: PlaybackControlsProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [volume, setVolume] = useState(-20)
   const [instrumentKey, setInstrumentKey] = useState('piano')
@@ -216,7 +217,23 @@ export default function PlaybackControls({ notes, bpm, onBpmChange }: PlaybackCo
     Tone.getTransport().stop()
     Tone.getTransport().cancel()
     setIsPlaying(false)
-  }, [])
+    onPlayheadChange?.(null)
+  }, [onPlayheadChange])
+
+  // RAF playhead emit
+  useEffect(() => {
+    if (!isPlaying || !onPlayheadChange) return
+    let raf = 0
+    const tick = () => {
+      const t = Tone.getTransport()
+      if (t.state !== 'started') { onPlayheadChange(null); return }
+      const spb = 60 / bpm
+      onPlayheadChange(t.seconds / spb)
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => { cancelAnimationFrame(raf); onPlayheadChange(null) }
+  }, [isPlaying, bpm, onPlayheadChange])
 
   const play = useCallback(async () => {
     if (isPlaying) { stop(); return }

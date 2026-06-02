@@ -36,6 +36,7 @@ function EditorContent() {
   const [tool, setTool] = useState<Tool>('draw')
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(!!patternId)
+  const [playheadBeat, setPlayheadBeat] = useState<number | null>(null)
 
   useEffect(() => {
     if (!patternId) return
@@ -221,7 +222,7 @@ function EditorContent() {
 
         {/* Main */}
         <main className="flex flex-1 flex-col gap-3 overflow-hidden p-3">
-          <PlaybackControls notes={notes} bpm={bpm} onBpmChange={setBpm} />
+          <PlaybackControls notes={notes} bpm={bpm} onBpmChange={setBpm} onPlayheadChange={setPlayheadBeat} />
           <div className="flex-1 overflow-auto">
             <PianoRoll
               notes={notes}
@@ -231,6 +232,7 @@ function EditorContent() {
               tool={tool}
               cursorBeat={cursorBeat}
               onCursorChange={setCursorBeat}
+              playheadBeat={playheadBeat}
             />
           </div>
           <p className="text-xs text-zinc-600">

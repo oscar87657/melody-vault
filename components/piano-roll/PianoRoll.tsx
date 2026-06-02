@@ -23,6 +23,7 @@ interface PianoRollProps {
   tool?: Tool
   cursorBeat?: number
   onCursorChange?: (beat: number) => void
+  playheadBeat?: number | null
 }
 
 type DragState =
@@ -57,6 +58,7 @@ function noteRect(note: Note) {
 export default function PianoRoll({
   notes, measures, onChange, snap = DEFAULT_SNAP,
   isReadOnly = false, tool = 'draw', cursorBeat, onCursorChange,
+  playheadBeat = null,
 }: PianoRollProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const dragRef = useRef<DragState>({ kind: 'none' })
@@ -185,7 +187,7 @@ export default function PianoRoll({
       ctx.setLineDash([])
     }
 
-    // === CURSOR LINE ===
+    // === CURSOR LINE (insert 위치, 노란 점선) ===
     if (cursorBeat !== undefined) {
       const cx = beatToX(cursorBeat)
       ctx.strokeStyle = '#facc15'
@@ -194,7 +196,20 @@ export default function PianoRoll({
       ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, canvasHeight); ctx.stroke()
       ctx.setLineDash([])
     }
-  }, [canvasWidth, canvasHeight, totalBeats, selected, cursorBeat, isReadOnly])
+
+    // === PLAYHEAD (재생 위치, 빨간 실선) ===
+    if (playheadBeat !== null && playheadBeat !== undefined) {
+      const px = beatToX(playheadBeat)
+      ctx.strokeStyle = '#ef4444'
+      ctx.lineWidth = 2
+      ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, canvasHeight); ctx.stroke()
+      // 상단 삼각형 마커
+      ctx.fillStyle = '#ef4444'
+      ctx.beginPath()
+      ctx.moveTo(px - 5, 0); ctx.lineTo(px + 5, 0); ctx.lineTo(px, 6)
+      ctx.closePath(); ctx.fill()
+    }
+  }, [canvasWidth, canvasHeight, totalBeats, selected, cursorBeat, playheadBeat, isReadOnly])
 
   useEffect(() => { draw() }, [draw, notes])
 

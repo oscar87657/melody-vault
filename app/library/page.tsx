@@ -8,6 +8,7 @@ import { downloadMidi, downloadWav, importMidiFile, effectiveType } from '@/lib/
 import { buildSamplePatterns } from '@/lib/sample-patterns'
 import { Plus, Download, Music, LogOut, Search, Pencil, Copy, Upload, Share2, Folder as FolderIcon, FolderPlus, Sparkles, Trash2 } from 'lucide-react'
 import dynamic from 'next/dynamic'
+import PlaybackControls from '@/components/piano-roll/PlaybackControls'
 
 const PianoRoll = dynamic(() => import('@/components/piano-roll/PianoRoll'), { ssr: false })
 
@@ -463,20 +464,57 @@ export default function LibraryPage() {
       )}
 
       {/* Preview modal */}
-      {preview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setPreview(null)}>
-          <div className="w-full max-w-3xl rounded-xl border border-zinc-700 bg-zinc-900 p-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h2 className="font-bold text-lg">{preview.name}</h2>
-                <p className="text-xs text-zinc-500">{preview.bpm} BPM · {preview.measures}마디</p>
-              </div>
-              <button onClick={() => setPreview(null)} className="text-zinc-500 hover:text-white">✕</button>
-            </div>
-            <PianoRoll notes={preview.notes} measures={preview.measures} onChange={() => {}} isReadOnly />
+      {preview && <PreviewModal key={preview.id} pattern={preview} onClose={() => setPreview(null)} />}
+    </div>
+  )
+}
+
+function PreviewModal({ pattern, onClose }: { pattern: Pattern; onClose: () => void }) {
+  const [bpm, setBpm] = useState(pattern.bpm)
+  const [playhead, setPlayhead] = useState<number | null>(null)
+  const dispType = effectiveType(pattern)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        className="flex w-full max-w-4xl max-h-[90vh] flex-col rounded-xl border border-zinc-700 bg-zinc-900 p-4"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="mb-3 flex flex-shrink-0 items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate font-bold text-lg">{pattern.name}</h2>
+            <p className="text-xs text-zinc-500">
+              {dispType === 'chord' ? '코드' : dispType === 'drum' ? '드럼' : '멜로디'} · {pattern.bpm} BPM · {pattern.measures}마디
+            </p>
           </div>
+          <button onClick={onClose} className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-white">✕</button>
         </div>
-      )}
+
+        <div className="mb-3 flex-shrink-0">
+          <PlaybackControls
+            notes={pattern.notes}
+            bpm={bpm}
+            onBpmChange={setBpm}
+            onPlayheadChange={setPlayhead}
+            isDrum={dispType === 'drum'}
+          />
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-zinc-800">
+          <PianoRoll
+            notes={pattern.notes}
+            measures={pattern.measures}
+            onChange={() => {}}
+            isReadOnly
+            isDrum={dispType === 'drum'}
+            playheadBeat={playhead}
+          />
+        </div>
+
+        <p className="mt-2 flex-shrink-0 text-[10px] text-zinc-600">
+          Space: 재생/정지 · ESC: 닫기
+        </p>
+      </div>
     </div>
   )
 }

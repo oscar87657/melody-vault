@@ -7,9 +7,10 @@ import {
   DEFAULT_NOTE_DURATION, isBlackKey, pitchToNoteName,
 } from './constants'
 
-const VISIBLE_MIN_PITCH = 36   // C2
-const VISIBLE_MAX_PITCH = 96   // C7
-const VISIBLE_RANGE = VISIBLE_MAX_PITCH - VISIBLE_MIN_PITCH + 1
+const MELODY_MIN_PITCH = 36   // C2
+const MELODY_MAX_PITCH = 96   // C7
+const DRUM_MIN_PITCH   = 35   // GM kick (acoustic)
+const DRUM_MAX_PITCH   = 57   // GM crash 2
 const RULER_HEIGHT = 16        // top ruler area for cursor click
 
 export type Tool = 'draw' | 'select'
@@ -50,26 +51,12 @@ type DragState =
   | { kind: 'moving'; noteIndices: number[]; origNotes: Note[]; startX: number; startY: number }
   | { kind: 'selecting'; startX: number; startY: number; curX: number; curY: number }
 
-function pitchToY(pitch: number): number {
-  return RULER_HEIGHT + (VISIBLE_MAX_PITCH - pitch) * ROW_HEIGHT
-}
-function yToPitch(y: number): number {
-  return Math.round(VISIBLE_MAX_PITCH - (y - RULER_HEIGHT) / ROW_HEIGHT)
-}
 function beatToX(beat: number): number {
   return KEY_WIDTH + beat * BEAT_WIDTH
 }
 function xToBeat(x: number, snap: number): number {
   const raw = (x - KEY_WIDTH) / BEAT_WIDTH
   return Math.max(0, Math.round(raw / snap) * snap)
-}
-function noteRect(note: Note) {
-  return {
-    x: beatToX(note.startBeat),
-    y: pitchToY(note.pitch),
-    w: Math.max(note.duration * BEAT_WIDTH - 2, 4),
-    h: ROW_HEIGHT - 1,
-  }
 }
 
 export default function PianoRoll({
@@ -79,6 +66,19 @@ export default function PianoRoll({
   keyRoot = null, keyScaleIntervals = null,
   isDrum = false,
 }: PianoRollProps) {
+  const visibleMin = isDrum ? DRUM_MIN_PITCH : MELODY_MIN_PITCH
+  const visibleMax = isDrum ? DRUM_MAX_PITCH : MELODY_MAX_PITCH
+  const visibleRange = visibleMax - visibleMin + 1
+
+  const pitchToY = useCallback((pitch: number) => RULER_HEIGHT + (visibleMax - pitch) * ROW_HEIGHT, [visibleMax])
+  const yToPitch = useCallback((y: number) => Math.round(visibleMax - (y - RULER_HEIGHT) / ROW_HEIGHT), [visibleMax])
+  const noteRect = useCallback((note: Note) => ({
+    x: beatToX(note.startBeat),
+    y: pitchToY(note.pitch),
+    w: Math.max(note.duration * BEAT_WIDTH - 2, 4),
+    h: ROW_HEIGHT - 1,
+  }), [pitchToY])
+
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const dragRef = useRef<DragState>({ kind: 'none' })
   const notesRef = useRef(notes)
@@ -93,7 +93,7 @@ export default function PianoRoll({
 
   const totalBeats = measures * 4
   const canvasWidth = KEY_WIDTH + totalBeats * BEAT_WIDTH
-  const canvasHeight = RULER_HEIGHT + VISIBLE_RANGE * ROW_HEIGHT
+  const canvasHeight = RULER_HEIGHT + visibleRange * ROW_HEIGHT
 
   // In-memory clipboard (shared across PianoRoll instances within a mount)
   const clipboardRef = useRef<Note[]>([])
@@ -131,7 +131,7 @@ export default function PianoRoll({
           : new Set(notesRef.current.map((_, i) => i))
         const next = notesRef.current.map((n, i) =>
           targets.has(i)
-            ? { ...n, pitch: Math.max(VISIBLE_MIN_PITCH, Math.min(VISIBLE_MAX_PITCH, n.pitch + delta)) }
+            ? { ...n, pitch: Math.max(visibleMin, Math.min(visibleMax, n.pitch + delta)) }
             : n
         )
         onChange(next)
@@ -188,7 +188,7 @@ export default function PianoRoll({
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [onChange, onCommit, isReadOnly])
+  }, [onChange, onCommit, isReadOnly, visibleMin, visibleMax])
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current
@@ -215,7 +215,7 @@ export default function PianoRoll({
     }
 
     // === PIANO KEYS ===
-    for (let pitch = VISIBLE_MIN_PITCH; pitch <= VISIBLE_MAX_PITCH; pitch++) {
+    for (let pitch = visibleMin; pitch <= visibleMax; pitch++) {
       const y = pitchToY(pitch)
       const isDrumRow = isDrum && DRUM_NAMES[pitch] !== undefined
       ctx.fillStyle = isDrumRow ? '#332a1a' : isBlackKey(pitch) ? '#1a1a1a' : '#2a2a2a'
@@ -235,7 +235,7 @@ export default function PianoRoll({
     const scaleSet = keyRoot !== null && keyScaleIntervals
       ? new Set(keyScaleIntervals)
       : null
-    for (let pitch = VISIBLE_MIN_PITCH; pitch <= VISIBLE_MAX_PITCH; pitch++) {
+    for (let pitch = visibleMin; pitch <= visibleMax; pitch++) {
       const y = pitchToY(pitch)
       const black = isBlackKey(pitch)
       let fill = black ? '#1e1e1e' : '#252525'
@@ -324,7 +324,7 @@ export default function PianoRoll({
       ctx.moveTo(px - 5, 0); ctx.lineTo(px + 5, 0); ctx.lineTo(px, 6)
       ctx.closePath(); ctx.fill()
     }
-  }, [canvasWidth, canvasHeight, totalBeats, selected, cursorBeat, playheadBeat, isReadOnly, keyRoot, keyScaleIntervals, isDrum])
+  }, [canvasWidth, canvasHeight, totalBeats, selected, cursorBeat, playheadBeat, isReadOnly, keyRoot, keyScaleIntervals, isDrum, visibleMin, visibleMax, pitchToY, noteRect])
 
   useEffect(() => { draw() }, [draw, notes])
 
@@ -425,7 +425,7 @@ export default function PianoRoll({
 
     // Draw new note
     const pitch = yToPitch(y)
-    if (pitch < VISIBLE_MIN_PITCH || pitch > VISIBLE_MAX_PITCH) return
+    if (pitch < visibleMin || pitch > visibleMax) return
     const startBeat = xToBeat(x, snap)
     const newNote: Note = { pitch, startBeat, duration: DEFAULT_NOTE_DURATION, velocity: DEFAULT_VELOCITY }
     dragRef.current = { kind: 'drawing', note: newNote }
@@ -459,7 +459,7 @@ export default function PianoRoll({
         const orig = drag.origNotes[i]
         next[ni] = {
           ...orig,
-          pitch: Math.max(VISIBLE_MIN_PITCH, Math.min(VISIBLE_MAX_PITCH, orig.pitch + pitchDelta)),
+          pitch: Math.max(visibleMin, Math.min(visibleMax, orig.pitch + pitchDelta)),
           startBeat: Math.max(0, orig.startBeat + beatDelta),
         }
       })

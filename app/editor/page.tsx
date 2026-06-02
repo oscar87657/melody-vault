@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, Suspense } from 'react'
+import { useState, useCallback, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Note, Pattern, PatternType, MOOD_TAGS, USE_TAGS } from '@/types'
@@ -86,6 +86,20 @@ function EditorContent() {
     router.push('/library')
   }
 
+  const handleSaveRef = useRef(handleSave)
+  handleSaveRef.current = handleSave
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault()
+        handleSaveRef.current()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   const handleDownloadMidi = () => {
     const pattern: Pattern = { id: patternId ?? 'new', user_id: '', name, type, notes, bpm, measures, tags, created_at: '', updated_at: '' }
     downloadMidi(pattern)
@@ -117,6 +131,7 @@ function EditorContent() {
           </button>
           <button
             onClick={handleSave} disabled={saving}
+            title="Ctrl/Cmd+S"
             className="flex items-center gap-1 rounded bg-green-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-green-400 disabled:opacity-50"
           >
             <Save size={14} /> {saving ? '저장 중...' : '저장'}

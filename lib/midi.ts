@@ -1,6 +1,26 @@
 import { Midi } from '@tonejs/midi'
 import { Note, Pattern, PatternType } from '@/types'
 
+// GM 드럼 키 매핑 범위. 노트가 대부분 여기 들어가면 드럼 패턴으로 본다.
+const GM_DRUM_PITCHES = new Set([
+  35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 53, 56, 57,
+])
+
+/** DB의 type 컬럼이 'drum'을 거부할 때를 대비한 자동 인식.
+ *  noteset의 80% 이상이 GM 드럼 영역이면 드럼 패턴으로 간주. */
+export function looksLikeDrumPattern(notes: Note[]): boolean {
+  if (notes.length === 0) return false
+  const drumCount = notes.filter(n => GM_DRUM_PITCHES.has(n.pitch)).length
+  return drumCount / notes.length >= 0.8
+}
+
+/** UI에 보여줄 실제 type. DB에 'melody'로 저장됐어도 노트가 드럼이면 'drum'. */
+export function effectiveType(p: Pick<Pattern, 'type' | 'notes'>): PatternType {
+  if (p.type === 'drum') return 'drum'
+  if (looksLikeDrumPattern(p.notes)) return 'drum'
+  return p.type
+}
+
 export function exportPatternToMidi(pattern: Pattern): Blob {
   const midi = new Midi()
   midi.header.tempos = [{ ticks: 0, bpm: pattern.bpm }]

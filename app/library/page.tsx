@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { Pattern, Folder, MOOD_TAGS, USE_TAGS } from '@/types'
-import { downloadMidi, downloadWav, importMidiFile } from '@/lib/midi'
+import { downloadMidi, downloadWav, importMidiFile, effectiveType } from '@/lib/midi'
 import { buildSamplePatterns } from '@/lib/sample-patterns'
 import { Plus, Download, Music, LogOut, Search, Pencil, Copy, Upload, Share2, Folder as FolderIcon, FolderPlus, Sparkles, Trash2 } from 'lucide-react'
 import dynamic from 'next/dynamic'
@@ -173,13 +173,18 @@ export default function LibraryPage() {
       }
       if (nonData) setPatterns(prev => [...(nonData as Pattern[]), ...prev])
 
-      const { data: drumData, error: drumErr } = await supabase
+      let { data: drumData, error: drumErr } = await supabase
         .from('patterns').insert(drum.map(toRow)).select()
+      // DB가 'drum' 타입을 거부하면 'melody'로 저장 — UI는 노트로 자동 인식
+      if (drumErr?.message?.includes('patterns_type_check')) {
+        const retry = await supabase.from('patterns')
+          .insert(drum.map(s => ({ ...toRow(s), type: 'melody' as const })))
+          .select()
+        drumData = retry.data
+        drumErr = retry.error
+      }
       if (drumErr) {
-        const msg = drumErr.message.includes('patterns_type_check')
-          ? `코드/멜로디 ${nonDrum.length}개는 추가됐어요.\n\n드럼 ${drum.length}개는 DB 마이그레이션이 필요합니다. Supabase SQL Editor에서 아래를 실행하세요:\n\nalter table patterns drop constraint if exists patterns_type_check;\nalter table patterns add constraint patterns_type_check check (type in ('chord', 'melody', 'drum'));`
-          : `드럼 패턴 추가 실패: ${drumErr.message}`
-        alert(msg)
+        alert(`드럼 패턴 추가 실패: ${drumErr.message}`)
         return
       }
       if (drumData) setPatterns(prev => [...(drumData as Pattern[]), ...prev])
@@ -242,7 +247,7 @@ export default function LibraryPage() {
   }, [preview])
 
   const filtered = patterns.filter(p => {
-    if (filterType !== 'all' && p.type !== filterType) return false
+    if (filterType !== 'all' && effectiveType(p) !== filterType) return false
     if (filterFolder === 'none' && p.folder_id) return false
     if (filterFolder !== 'all' && filterFolder !== 'none' && p.folder_id !== filterFolder) return false
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false
@@ -495,6 +500,7 @@ function PatternCard({
   const [busy, setBusy] = useState(false)
   const moodTags = pattern.tags.filter(t => MOOD_TAGS.includes(t))
   const useTags = pattern.tags.filter(t => USE_TAGS.includes(t))
+  const dispType = effectiveType(pattern)
 
   return (
     <div className={`rounded-xl border transition-colors ${isPreviewOpen ? 'border-green-500' : 'border-zinc-800 hover:border-zinc-600'} bg-zinc-900 p-4 space-y-3`}>
@@ -502,7 +508,7 @@ function PatternCard({
         <div>
           <p className="font-semibold">{pattern.name}</p>
           <p className="text-xs text-zinc-500">
-            {pattern.type === 'chord' ? '코드' : '멜로디'} · {pattern.bpm} BPM · {pattern.measures}마디
+            {dispType === 'chord' ? '코드' : dispType === 'drum' ? '드럼' : '멜로디'} · {pattern.bpm} BPM · {pattern.measures}마디
           </p>
         </div>
         <div className="flex gap-1">

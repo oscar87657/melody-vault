@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic'
 import { Note, Pattern, PatternType, MOOD_TAGS, USE_TAGS, ROOT_NOTES, SCALES } from '@/types'
 import { parseProgression, chordToNotes, diatonicTriads, parseChord } from '@/lib/chord'
 import { createClient } from '@/lib/supabase'
-import { downloadMidi, downloadWav } from '@/lib/midi'
+import { downloadMidi, downloadWav, effectiveType } from '@/lib/midi'
 import { ChevronLeft, Download, Save, Trash2, Pencil, MousePointer2, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown } from 'lucide-react'
 import ChordInput from '@/components/piano-roll/ChordInput'
 import PlaybackControls from '@/components/piano-roll/PlaybackControls'
@@ -108,7 +108,10 @@ function EditorContent() {
       .then(({ data, error }: { data: Pattern | null; error: { message: string } | null }) => {
         if (error) console.error('패턴 불러오기 실패:', error.message)
         if (data) {
-          setName(data.name); setType(data.type); resetNotes(data.notes)
+          setName(data.name)
+          // DB가 drum을 거부해서 melody로 저장된 패턴도 노트로 자동 인식
+          setType(effectiveType(data))
+          resetNotes(data.notes)
           setBpm(data.bpm); setMeasures(data.measures); setTags(data.tags)
         }
         setLoading(false)
@@ -175,15 +178,27 @@ function EditorContent() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/auth'); setSaving(false); return }
 
-    const payload = { name, type, notes, bpm, measures, tags, user_id: user.id, updated_at: new Date().toISOString() }
-    if (patternId) {
-      await supabase.from('patterns').update(payload).eq('id', patternId)
-    } else {
-      const { data } = await supabase.from('patterns').insert({ ...payload, created_at: new Date().toISOString() }).select().single()
-      if (data) {
-        fetchedIdRef.current = data.id  // don't refetch what we just wrote
-        setPatternId(data.id)
-        window.history.replaceState(null, '', `/editor?id=${data.id}`)
+    const writeOnce = async (typeToSave: PatternType) => {
+      const payload = { name, type: typeToSave, notes, bpm, measures, tags, user_id: user.id, updated_at: new Date().toISOString() }
+      if (patternId) {
+        return await supabase.from('patterns').update(payload).eq('id', patternId)
+      } else {
+        return await supabase.from('patterns').insert({ ...payload, created_at: new Date().toISOString() }).select().single()
+      }
+    }
+
+    let result = await writeOnce(type)
+    // DB가 'drum' 타입을 거부하면 'melody'로 fallback. 노트 자체는 드럼 음이라 로드 시 자동 인식.
+    if (result.error?.message?.includes('patterns_type_check') && type === 'drum') {
+      result = await writeOnce('melody')
+    }
+
+    if (!patternId && !result.error) {
+      const inserted = (result as { data: { id: string } | null }).data
+      if (inserted) {
+        fetchedIdRef.current = inserted.id
+        setPatternId(inserted.id)
+        window.history.replaceState(null, '', `/editor?id=${inserted.id}`)
       }
     }
     setSaving(false)

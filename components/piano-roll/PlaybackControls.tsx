@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import * as Tone from 'tone'
 import { Note } from '@/types'
-import { Play, Square, Volume2, Loader2 } from 'lucide-react'
+import { Play, Square, Volume2, Loader2, Repeat } from 'lucide-react'
 
 // ─── Instrument definitions ────────────────────────────────────────────────
 
@@ -165,6 +165,9 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
   const [volume, setVolume] = useState(-20)
   const [instrumentKey, setInstrumentKey] = useState('piano')
   const [loading, setLoading] = useState(true)
+  const [isLoop, setIsLoop] = useState(false)
+  const isLoopRef = useRef(isLoop)
+  useEffect(() => { isLoopRef.current = isLoop }, [isLoop])
 
   const synthRef  = useRef<AnyInstrument | null>(null)
   const volRef    = useRef<Tone.Volume | null>(null)
@@ -214,8 +217,10 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
   }, [])
 
   const stop = useCallback(() => {
-    Tone.getTransport().stop()
-    Tone.getTransport().cancel()
+    const transport = Tone.getTransport()
+    transport.stop()
+    transport.cancel()
+    transport.loop = false
     setIsPlaying(false)
     onPlayheadChange?.(null)
   }, [onPlayheadChange])
@@ -276,12 +281,19 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
       }, note.startBeat * spb)
     })
 
-    transport.schedule(() => { setIsPlaying(false); onPlayheadChange?.(null) }, maxEnd * spb + 0.2)
+    if (isLoopRef.current) {
+      transport.loop = true
+      transport.loopStart = 0
+      transport.loopEnd = maxEnd * spb
+    } else {
+      transport.loop = false
+      transport.schedule(() => { setIsPlaying(false); onPlayheadChange?.(null) }, maxEnd * spb + 0.2)
+    }
     transport.start()
     setIsPlaying(true)
   }, [isPlaying, notes, bpm, stop, onPlayheadChange])
 
-  playRef.current = play
+  useEffect(() => { playRef.current = play }, [play])
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2">
@@ -295,6 +307,16 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
       >
         {isPlaying ? <Square size={14} /> : <Play size={14} />}
         {isPlaying ? '정지' : '재생'}
+      </button>
+
+      <button
+        onClick={() => setIsLoop(p => !p)}
+        title={isLoop ? '루프 끄기' : '루프 켜기 (반복 재생)'}
+        className={`flex items-center rounded px-2 py-1.5 text-sm transition-colors ${
+          isLoop ? 'bg-green-500/20 text-green-400' : 'bg-zinc-800 text-zinc-500 hover:text-white'
+        }`}
+      >
+        <Repeat size={14} />
       </button>
 
       {/* BPM */}

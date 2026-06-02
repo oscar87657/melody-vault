@@ -19,6 +19,55 @@ const SNAP_OPTIONS = [
   { label: '1/4',  value: 1 },
 ]
 
+const HISTORY_LIMIT = 100
+
+function useUndoable<T>(initial: T) {
+  const [state, setState] = useState<T>(initial)
+  const committedRef = useRef<T>(initial)
+  const historyRef = useRef<T[]>([])
+  const futureRef = useRef<T[]>([])
+
+  const set = useCallback((next: T | ((prev: T) => T)) => {
+    setState(prev => typeof next === 'function' ? (next as (p: T) => T)(prev) : next)
+  }, [])
+
+  const commit = useCallback(() => {
+    setState(prev => {
+      if (Object.is(prev, committedRef.current)) return prev
+      historyRef.current.push(committedRef.current)
+      if (historyRef.current.length > HISTORY_LIMIT) historyRef.current.shift()
+      committedRef.current = prev
+      futureRef.current = []
+      return prev
+    })
+  }, [])
+
+  const undo = useCallback(() => {
+    const last = historyRef.current.pop()
+    if (last === undefined) return
+    futureRef.current.push(committedRef.current)
+    committedRef.current = last
+    setState(last)
+  }, [])
+
+  const redo = useCallback(() => {
+    const next = futureRef.current.pop()
+    if (next === undefined) return
+    historyRef.current.push(committedRef.current)
+    committedRef.current = next
+    setState(next)
+  }, [])
+
+  const reset = useCallback((value: T) => {
+    historyRef.current = []
+    futureRef.current = []
+    committedRef.current = value
+    setState(value)
+  }, [])
+
+  return { state, set, commit, undo, redo, reset } as const
+}
+
 function EditorContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -27,7 +76,9 @@ function EditorContent() {
 
   const [name, setName] = useState('새 패턴')
   const [type, setType] = useState<PatternType>(defaultType)
-  const [notes, setNotes] = useState<Note[]>([])
+  const notesHistory = useUndoable<Note[]>([])
+  const notes = notesHistory.state
+  const setNotes = notesHistory.set
   const [bpm, setBpm] = useState(120)
   const [measures, setMeasures] = useState(type === 'chord' ? 4 : 2)
   const [tags, setTags] = useState<string[]>([])
@@ -38,6 +89,7 @@ function EditorContent() {
   const [loading, setLoading] = useState(!!patternId)
   const [playheadBeat, setPlayheadBeat] = useState<number | null>(null)
 
+  const resetNotes = notesHistory.reset
   useEffect(() => {
     if (!patternId) return
     const supabase = createClient()
@@ -45,7 +97,7 @@ function EditorContent() {
       .then(({ data, error }: { data: Pattern | null; error: { message: string } | null }) => {
         if (error) console.error('패턴 불러오기 실패:', error.message)
         if (data) {
-          setName(data.name); setType(data.type); setNotes(data.notes)
+          setName(data.name); setType(data.type); resetNotes(data.notes)
           setBpm(data.bpm); setMeasures(data.measures); setTags(data.tags)
         }
         setLoading(false)
@@ -53,17 +105,19 @@ function EditorContent() {
         console.error('패턴 불러오기 실패:', err)
         setLoading(false)
       })
-  }, [patternId])
+  }, [patternId, resetNotes])
 
+  const commitNotes = notesHistory.commit
   const handleAddChord = useCallback((chordNotes: Note[], duration: number) => {
     setNotes(prev => [...prev, ...chordNotes])
+    commitNotes()
     setCursorBeat(prev => prev + duration)
-  }, [])
+  }, [setNotes, commitNotes])
 
   const toggleTag = (tag: string) =>
     setTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     setSaving(true)
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -77,7 +131,7 @@ function EditorContent() {
       if (data) router.replace(`/editor?id=${data.id}`)
     }
     setSaving(false)
-  }
+  }, [name, type, notes, bpm, measures, tags, patternId, router])
 
   const handleDelete = async () => {
     if (!patternId || !confirm('이 패턴을 삭제할까요?')) return
@@ -87,13 +141,33 @@ function EditorContent() {
   }
 
   const handleSaveRef = useRef(handleSave)
-  handleSaveRef.current = handleSave
+  const undoRef = useRef(notesHistory.undo)
+  const redoRef = useRef(notesHistory.redo)
+  useEffect(() => { handleSaveRef.current = handleSave }, [handleSave])
+  useEffect(() => { undoRef.current = notesHistory.undo }, [notesHistory.undo])
+  useEffect(() => { redoRef.current = notesHistory.redo }, [notesHistory.redo])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+      if (!(e.ctrlKey || e.metaKey)) return
+      const key = e.key.toLowerCase()
+
+      if (key === 's') {
         e.preventDefault()
         handleSaveRef.current()
+        return
+      }
+
+      // Don't hijack browser undo while typing in an input
+      const ae = document.activeElement as HTMLElement | null
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return
+
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undoRef.current()
+      } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+        e.preventDefault()
+        redoRef.current()
       }
     }
     window.addEventListener('keydown', handler)
@@ -208,7 +282,13 @@ function EditorContent() {
           />
 
           <button
-            onClick={() => { if (confirm('모든 노트를 지울까요?')) { setNotes([]); setCursorBeat(0) } }}
+            onClick={() => {
+              if (confirm('모든 노트를 지울까요?')) {
+                setNotes([])
+                notesHistory.commit()
+                setCursorBeat(0)
+              }
+            }}
             className="rounded border border-zinc-700 py-1.5 text-xs text-zinc-500 hover:border-red-500 hover:text-red-400"
           >
             노트 전체 지우기
@@ -243,6 +323,7 @@ function EditorContent() {
               notes={notes}
               measures={measures}
               onChange={setNotes}
+              onCommit={notesHistory.commit}
               snap={snap}
               tool={tool}
               cursorBeat={cursorBeat}

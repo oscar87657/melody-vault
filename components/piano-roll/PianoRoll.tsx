@@ -18,6 +18,7 @@ interface PianoRollProps {
   notes: Note[]
   measures: number
   onChange: (notes: Note[]) => void
+  onCommit?: () => void
   snap?: number
   isReadOnly?: boolean
   tool?: Tool
@@ -56,7 +57,7 @@ function noteRect(note: Note) {
 }
 
 export default function PianoRoll({
-  notes, measures, onChange, snap = DEFAULT_SNAP,
+  notes, measures, onChange, onCommit, snap = DEFAULT_SNAP,
   isReadOnly = false, tool = 'draw', cursorBeat, onCursorChange,
   playheadBeat = null,
 }: PianoRollProps) {
@@ -65,8 +66,9 @@ export default function PianoRoll({
   const notesRef = useRef(notes)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const selectedRef = useRef(selected)
-  notesRef.current = notes
-  selectedRef.current = selected
+
+  useEffect(() => { notesRef.current = notes }, [notes])
+  useEffect(() => { selectedRef.current = selected }, [selected])
 
   const totalBeats = measures * 4
   const canvasWidth = KEY_WIDTH + totalBeats * BEAT_WIDTH
@@ -88,10 +90,11 @@ export default function PianoRoll({
       )) return
       onChange(notesRef.current.filter((_, i) => !selectedRef.current.has(i)))
       setSelected(new Set())
+      onCommit?.()
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [onChange, isReadOnly])
+  }, [onChange, onCommit, isReadOnly])
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current
@@ -260,6 +263,7 @@ export default function PianoRoll({
           onChange(notesRef.current.filter((_, i) => i !== idx))
           const next = new Set(selectedRef.current); next.delete(idx); setSelected(next)
         }
+        onCommit?.()
       }
       return
     }
@@ -270,10 +274,9 @@ export default function PianoRoll({
 
     if (tool === 'select') {
       if (idx !== -1) {
-        const note = notesRef.current[idx]
         if (e.shiftKey) {
           const next = new Set(selectedRef.current)
-          next.has(idx) ? next.delete(idx) : next.add(idx)
+          if (next.has(idx)) next.delete(idx); else next.add(idx)
           setSelected(next)
           return
         }
@@ -370,6 +373,8 @@ export default function PianoRoll({
       } else {
         setSelected(found)
       }
+    } else if (drag.kind === 'drawing' || drag.kind === 'resizing' || drag.kind === 'moving') {
+      onCommit?.()
     }
     dragRef.current = { kind: 'none' }
   }
@@ -389,7 +394,11 @@ export default function PianoRoll({
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        onMouseLeave={() => { dragRef.current = { kind: 'none' } }}
+        onMouseLeave={() => {
+          const k = dragRef.current.kind
+          if (k === 'drawing' || k === 'resizing' || k === 'moving') onCommit?.()
+          dragRef.current = { kind: 'none' }
+        }}
         onContextMenu={e => e.preventDefault()}
         style={{ cursor, display: 'block' }}
       />

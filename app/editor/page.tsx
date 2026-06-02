@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Note, Pattern, PatternType, MOOD_TAGS, USE_TAGS, ROOT_NOTES, SCALES } from '@/types'
-import { parseProgression, chordToNotes } from '@/lib/chord'
+import { parseProgression, chordToNotes, diatonicTriads, parseChord } from '@/lib/chord'
 import { createClient } from '@/lib/supabase'
 import { downloadMidi, downloadWav } from '@/lib/midi'
 import { ChevronLeft, Download, Save, Trash2, Pencil, MousePointer2, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown } from 'lucide-react'
@@ -124,6 +124,15 @@ function EditorContent() {
     commitNotes()
     setCursorBeat(prev => prev + duration)
   }, [setNotes, commitNotes])
+
+  const addOneChord = useCallback((symbol: string, beats: number) => {
+    const parsed = parseChord(symbol)
+    if (!parsed) return
+    const notes = chordToNotes(parsed, cursorBeat, beats)
+    setNotes(prev => [...prev, ...notes])
+    commitNotes()
+    setCursorBeat(prev => prev + beats)
+  }, [cursorBeat, setNotes, commitNotes])
 
   const addChordProgression = useCallback((str: string, beatsPerChord: number) => {
     const { chords, failed } = parseProgression(str)
@@ -433,6 +442,47 @@ function EditorContent() {
               </p>
             )}
           </div>
+
+          {/* Diatonic chord quick-pick — only if Major or Natural Minor selected */}
+          {keyRoot !== null && (SCALES[keyScaleIdx].name === 'Major' || SCALES[keyScaleIdx].name === 'Natural Minor') && (
+            <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">키 안의 코드</p>
+              <div className="grid grid-cols-4 gap-1">
+                {diatonicTriads(keyRoot, SCALES[keyScaleIdx].name === 'Major' ? 'major' : 'minor').map((d, i) => (
+                  <button key={i}
+                    onClick={() => addOneChord(d.symbol, progressionLen)}
+                    title={`${d.degree} — ${d.symbol}`}
+                    className="rounded bg-zinc-800 px-1 py-1 text-[10px] text-zinc-200 hover:bg-green-500 hover:text-black"
+                  >
+                    <div className="text-[8px] text-zinc-500">{d.degree}</div>
+                    <div className="font-bold">{d.symbol}</div>
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-zinc-600">클릭 시 커서 위치에 추가 (길이: 위 박자 설정)</p>
+              <div className="border-t border-zinc-800 pt-2">
+                <p className="text-[10px] text-zinc-500 mb-1">흔한 진행 (한 번에 4개)</p>
+                <div className="flex flex-wrap gap-1">
+                  {(SCALES[keyScaleIdx].name === 'Major'
+                    ? [['I','V','vi','IV'],['I','vi','IV','V'],['vi','IV','I','V'],['ii','V','I','I']]
+                    : [['i','VII','VI','VII'],['i','iv','VII','III'],['i','VI','III','VII']]
+                  ).map((seq, si) => {
+                    const tri = diatonicTriads(keyRoot, SCALES[keyScaleIdx].name === 'Major' ? 'major' : 'minor')
+                    const symbols = seq.map(rn => tri.find(t => t.degree === rn)?.symbol).filter(Boolean) as string[]
+                    return (
+                      <button key={si}
+                        onClick={() => addChordProgression(symbols.join(' '), progressionLen)}
+                        title={symbols.join(' - ')}
+                        className="rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] text-zinc-300 hover:bg-zinc-700"
+                      >
+                        {seq.join('-')}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Transpose */}
           <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 space-y-2">

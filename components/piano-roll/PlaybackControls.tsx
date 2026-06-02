@@ -9,6 +9,7 @@ import { Play, Square, Volume2, Loader2, Repeat } from 'lucide-react'
 
 const SALAMANDER = 'https://tonejs.github.io/audio/salamander/'
 const GLEITZ     = 'https://gleitz.github.io/midi-js-soundfonts/FluidR3_GM/'
+const DRUM_KIT_URL = 'https://tonejs.github.io/audio/drum-samples/acoustic-kit/'
 
 // Notes sampled every minor-3rd per octave (C Eb Gb A), using flat names for gleitz
 function gleitzNotes(startOct: number, endOct: number): Record<string, string> {
@@ -174,18 +175,15 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
   useEffect(() => { isMetronomeRef.current = isMetronome }, [isMetronome])
   const metronomeRef = useRef<{ high: Tone.Synth; low: Tone.Synth } | null>(null)
   const drumKitRef = useRef<{
-    kick: Tone.MembraneSynth
-    stick: Tone.MembraneSynth
-    snare: Tone.NoiseSynth
-    snareFilter: Tone.Filter
-    clap: Tone.NoiseSynth
+    sampler: Tone.Sampler           // kick / snare / hihat / 3 toms — real samples
+    stick: Tone.MembraneSynth       // synth: side stick (no sample available)
+    clap: Tone.NoiseSynth           // synth: hand clap
     clapFilter: Tone.Filter
-    tom: Tone.MembraneSynth
-    closedHat: Tone.MetalSynth
-    openHat: Tone.MetalSynth
-    crash: Tone.MetalSynth
-    ride: Tone.MetalSynth
+    openHat: Tone.MetalSynth        // synth: open hi-hat (longer decay)
+    crash: Tone.MetalSynth          // synth: crash 1/2
+    ride: Tone.MetalSynth           // synth: ride (bell-ish)
   } | null>(null)
+  const [drumLoading, setDrumLoading] = useState(false)
 
   const synthRef  = useRef<AnyInstrument | null>(null)
   const volRef    = useRef<Tone.Volume | null>(null)
@@ -226,6 +224,70 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
     volRef.current.volume.value = volume + gainDb
   }, [volume, instrumentKey])
 
+  // Drum kit: build a real Sampler for kick/snare/hihat/toms when isDrum=true,
+  // plus synthesised fallbacks for the drums Tone.js doesn't host (stick/clap/openHH/crash/ride).
+  useEffect(() => {
+    if (!isDrum || !limiterRef.current) return
+    const out = limiterRef.current
+    setDrumLoading(true)
+
+    const sampler = new Tone.Sampler({
+      urls: {
+        'C2': 'kick.mp3',
+        'D2': 'snare.mp3',
+        'E2': 'hihat.mp3',
+        'F2': 'tom1.mp3',
+        'G2': 'tom2.mp3',
+        'A2': 'tom3.mp3',
+      },
+      baseUrl: DRUM_KIT_URL,
+      onload: () => setDrumLoading(false),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any).connect(out)
+
+    const stick = new Tone.MembraneSynth({
+      pitchDecay: 0.001, octaves: 1,
+      envelope: { attack: 0.001, decay: 0.03, sustain: 0, release: 0.02 },
+    }).connect(out)
+    stick.volume.value = -10
+
+    const clapFilter = new Tone.Filter({ frequency: 1200, type: 'bandpass', Q: 1.2 }).connect(out)
+    const clap = new Tone.NoiseSynth({
+      noise: { type: 'pink' },
+      envelope: { attack: 0.005, decay: 0.18, sustain: 0, release: 0.05 },
+    }).connect(clapFilter)
+    clap.volume.value = -6
+
+    const openHat = new Tone.MetalSynth({
+      envelope: { attack: 0.001, decay: 0.35, release: 0.1 },
+      harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5,
+    }).connect(out)
+    openHat.volume.value = -22
+
+    const crash = new Tone.MetalSynth({
+      envelope: { attack: 0.001, decay: 1.2, release: 0.4 },
+      harmonicity: 3.1, modulationIndex: 22, resonance: 2000, octaves: 2,
+    }).connect(out)
+    crash.volume.value = -18
+
+    const ride = new Tone.MetalSynth({
+      envelope: { attack: 0.001, decay: 0.25, release: 0.1 },
+      harmonicity: 8.5, modulationIndex: 18, resonance: 6000, octaves: 1,
+    }).connect(out)
+    ride.volume.value = -20
+
+    drumKitRef.current = { sampler, stick, clap, clapFilter, openHat, crash, ride }
+
+    return () => {
+      sampler.dispose()
+      stick.dispose()
+      clap.dispose(); clapFilter.dispose()
+      openHat.dispose(); crash.dispose(); ride.dispose()
+      drumKitRef.current = null
+      setDrumLoading(false)
+    }
+  }, [isDrum])
+
   useEffect(() => () => {
     Tone.getTransport().stop()
     Tone.getTransport().cancel()
@@ -242,15 +304,7 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
     metronomeRef.current?.high.dispose()
     metronomeRef.current?.low.dispose()
     metronomeRef.current = null
-    if (drumKitRef.current) {
-      const k = drumKitRef.current
-      k.kick.dispose(); k.stick.dispose()
-      k.snare.dispose(); k.snareFilter.dispose()
-      k.clap.dispose(); k.clapFilter.dispose()
-      k.tom.dispose(); k.closedHat.dispose(); k.openHat.dispose()
-      k.crash.dispose(); k.ride.dispose()
-      drumKitRef.current = null
-    }
+    // drum kit lifecycle handled by its own useEffect (isDrum dependency)
     setIsPlaying(false)
     onPlayheadChange?.(null)
   }, [onPlayheadChange])
@@ -303,108 +357,42 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
     const spb = 60 / bpm
     const maxEnd = Math.max(...notes.map(n => n.startBeat + n.duration))
 
-    if (isDrum && limiterRef.current) {
-      const out = limiterRef.current
-
-      // Kick — big body, long pitch decay
-      const kick = new Tone.MembraneSynth({
-        pitchDecay: 0.05, octaves: 6,
-        envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.4 },
-      }).connect(out)
-      kick.volume.value = -4
-
-      // Side stick — short woody click (MembraneSynth with tiny pitch decay)
-      const stick = new Tone.MembraneSynth({
-        pitchDecay: 0.001, octaves: 1,
-        envelope: { attack: 0.001, decay: 0.03, sustain: 0, release: 0.02 },
-      }).connect(out)
-      stick.volume.value = -10
-
-      // Snare — white noise + sharp envelope, mid-range body
-      const snareFilter = new Tone.Filter({ frequency: 1500, type: 'highpass' }).connect(out)
-      const snare = new Tone.NoiseSynth({
-        noise: { type: 'white' },
-        envelope: { attack: 0.001, decay: 0.13, sustain: 0 },
-      }).connect(snareFilter)
-      snare.volume.value = -8
-
-      // Clap — pink noise, slightly slower attack, band-passed for "smack"
-      const clapFilter = new Tone.Filter({ frequency: 1200, type: 'bandpass', Q: 1.2 }).connect(out)
-      const clap = new Tone.NoiseSynth({
-        noise: { type: 'pink' },
-        envelope: { attack: 0.005, decay: 0.18, sustain: 0, release: 0.05 },
-      }).connect(clapFilter)
-      clap.volume.value = -6
-
-      // Toms — MembraneSynth, pitch chosen per drum at trigger time
-      const tom = new Tone.MembraneSynth({
-        pitchDecay: 0.08, octaves: 3,
-        envelope: { attack: 0.001, decay: 0.5, sustain: 0, release: 0.6 },
-      }).connect(out)
-      tom.volume.value = -6
-
-      // Closed hi-hat — short, bright
-      const closedHat = new Tone.MetalSynth({
-        envelope: { attack: 0.001, decay: 0.05, release: 0.01 },
-        harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5,
-      }).connect(out)
-      closedHat.volume.value = -22
-
-      // Open hi-hat — same character, much longer decay
-      const openHat = new Tone.MetalSynth({
-        envelope: { attack: 0.001, decay: 0.35, release: 0.1 },
-        harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5,
-      }).connect(out)
-      openHat.volume.value = -22
-
-      // Crash — long ringing, lower fundamental
-      const crash = new Tone.MetalSynth({
-        envelope: { attack: 0.001, decay: 1.2, release: 0.4 },
-        harmonicity: 3.1, modulationIndex: 22, resonance: 2000, octaves: 2,
-      }).connect(out)
-      crash.volume.value = -18
-
-      // Ride — bell-ish ping, brighter than crash, shorter decay
-      const ride = new Tone.MetalSynth({
-        envelope: { attack: 0.001, decay: 0.25, release: 0.1 },
-        harmonicity: 8.5, modulationIndex: 18, resonance: 6000, octaves: 1,
-      }).connect(out)
-      ride.volume.value = -20
-
-      drumKitRef.current = { kick, stick, snare, snareFilter, clap, clapFilter, tom, closedHat, openHat, crash, ride }
-
-      // Pitch lookup for toms (in MIDI semitones — lower number = lower pitch)
-      const tomPitch: Record<number, string> = {
-        41: 'F2', 43: 'A2', 45: 'C3', 47: 'D3', 48: 'F3', 50: 'A3',
-      }
+    if (isDrum && drumKitRef.current) {
+      const { sampler, stick, clap, openHat, crash, ride } = drumKitRef.current
 
       notes.forEach(note => {
         transport.schedule((time) => {
           const p = note.pitch
           const v = Math.max(0.1, note.velocity / 127)
           try {
+            // ── Real samples ─────────────────────────────────────
             // Kick (Acoustic / Bass Drum 1)
-            if (p === 35 || p === 36) kick.triggerAttackRelease('C2', '8n', time, v)
+            if (p === 35 || p === 36) sampler.triggerAttackRelease('C2', '8n', time, v)
+            // Snare (Acoustic / Electric)
+            else if (p === 38 || p === 40) sampler.triggerAttackRelease('D2', '8n', time, v)
+            // Closed / Pedal Hi-Hat — both use the same hihat sample
+            else if (p === 42 || p === 44) sampler.triggerAttackRelease('E2', '8n', time, v * 0.8)
+            // Floor toms (low) → tom1 sample (low pitched)
+            else if (p === 41 || p === 43) sampler.triggerAttackRelease('F2', '8n', time, v * 0.9)
+            // Low / low-mid toms → tom2 sample (mid pitched)
+            else if (p === 45 || p === 47) sampler.triggerAttackRelease('G2', '8n', time, v * 0.9)
+            // Hi-mid / high toms → tom3 sample (high pitched)
+            else if (p === 48 || p === 50) sampler.triggerAttackRelease('A2', '8n', time, v * 0.9)
+            // ── Synthesised fallbacks (no sample available) ────
             // Side Stick
             else if (p === 37) stick.triggerAttackRelease('C5', '32n', time, v * 0.7)
-            // Snare (Acoustic / Electric)
-            else if (p === 38 || p === 40) snare.triggerAttackRelease('16n', time, v)
             // Hand Clap
             else if (p === 39) clap.triggerAttackRelease('8n', time, v)
-            // Closed / Pedal Hi-Hat
-            else if (p === 42 || p === 44) closedHat.triggerAttackRelease('C5', '32n', time, v * 0.6)
-            // Open Hi-Hat (longer decay)
+            // Open Hi-Hat (longer ring)
             else if (p === 46) openHat.triggerAttackRelease('C5', '4n', time, v * 0.7)
             // Crash 1 / Crash 2
             else if (p === 49 || p === 57) crash.triggerAttackRelease('C4', '2n', time, v)
             // Ride
             else if (p === 51) ride.triggerAttackRelease('C5', '8n', time, v * 0.8)
-            // Toms — per-drum pitch
-            else if (tomPitch[p]) tom.triggerAttackRelease(tomPitch[p], '8n', time, v * 0.85)
           } catch (err) { console.warn('drum schedule:', err) }
         }, note.startBeat * spb)
       })
-    } else {
+    } else if (!isDrum) {
       const synth = synthRef.current!
       notes.forEach(note => {
         const freq = Tone.Frequency(note.pitch, 'midi').toFrequency()
@@ -496,7 +484,7 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
 
       {/* Instrument dropdown */}
       <div className="flex items-center gap-2">
-        {loading && <Loader2 size={13} className="animate-spin text-zinc-500" />}
+        {(loading || drumLoading) && <Loader2 size={13} className="animate-spin text-zinc-500" />}
         <select
           value={instrumentKey}
           onChange={e => setInstrumentKey(e.target.value)}

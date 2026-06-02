@@ -26,6 +26,10 @@ interface PianoRollProps {
   onCursorChange?: (beat: number) => void
   playheadBeat?: number | null
   onSelectionChange?: (indices: number[]) => void
+  /** 0=C, 1=C#, ..., 11=B */
+  keyRoot?: number | null
+  /** 스케일에 속하는 음정 집합 (semitones from root, 0..11) */
+  keyScaleIntervals?: number[] | null
 }
 
 type DragState =
@@ -61,6 +65,7 @@ export default function PianoRoll({
   notes, measures, onChange, onCommit, snap = DEFAULT_SNAP,
   isReadOnly = false, tool = 'draw', cursorBeat, onCursorChange,
   playheadBeat = null, onSelectionChange,
+  keyRoot = null, keyScaleIntervals = null,
 }: PianoRollProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const dragRef = useRef<DragState>({ kind: 'none' })
@@ -213,9 +218,22 @@ export default function PianoRoll({
     }
 
     // === GRID ===
+    const scaleSet = keyRoot !== null && keyScaleIntervals
+      ? new Set(keyScaleIntervals)
+      : null
     for (let pitch = VISIBLE_MIN_PITCH; pitch <= VISIBLE_MAX_PITCH; pitch++) {
       const y = pitchToY(pitch)
-      ctx.fillStyle = isBlackKey(pitch) ? '#1e1e1e' : '#252525'
+      const black = isBlackKey(pitch)
+      let fill = black ? '#1e1e1e' : '#252525'
+      if (scaleSet && keyRoot !== null) {
+        const interval = ((pitch - keyRoot) % 12 + 12) % 12
+        if (scaleSet.has(interval)) {
+          fill = black ? '#1a2e1d' : '#1f3a25'  // 스케일 안: 살짝 초록 톤
+          // 루트 음(키 음)은 더 강조
+          if (interval === 0) fill = black ? '#1f3a25' : '#234a2c'
+        }
+      }
+      ctx.fillStyle = fill
       ctx.fillRect(KEY_WIDTH, y, totalBeats * BEAT_WIDTH, ROW_HEIGHT)
     }
     for (let beat = 0; beat <= totalBeats; beat++) {
@@ -292,7 +310,7 @@ export default function PianoRoll({
       ctx.moveTo(px - 5, 0); ctx.lineTo(px + 5, 0); ctx.lineTo(px, 6)
       ctx.closePath(); ctx.fill()
     }
-  }, [canvasWidth, canvasHeight, totalBeats, selected, cursorBeat, playheadBeat, isReadOnly])
+  }, [canvasWidth, canvasHeight, totalBeats, selected, cursorBeat, playheadBeat, isReadOnly, keyRoot, keyScaleIntervals])
 
   useEffect(() => { draw() }, [draw, notes])
 

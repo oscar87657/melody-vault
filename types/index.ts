@@ -41,3 +41,19 @@ export const CHORD_TYPES: ChordDefinition[] = [
 ]
 
 export const ROOT_NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+
+export interface ScaleDef {
+  name: string
+  intervals: number[]  // semitones from root, within an octave
+}
+
+export const SCALES: ScaleDef[] = [
+  { name: 'Major',          intervals: [0, 2, 4, 5, 7, 9, 11] },
+  { name: 'Natural Minor',  intervals: [0, 2, 3, 5, 7, 8, 10] },
+  { name: 'Harmonic Minor', intervals: [0, 2, 3, 5, 7, 8, 11] },
+  { name: 'Dorian',         intervals: [0, 2, 3, 5, 7, 9, 10] },
+  { name: 'Mixolydian',     intervals: [0, 2, 4, 5, 7, 9, 10] },
+  { name: 'Pentatonic',     intervals: [0, 2, 4, 7, 9] },
+  { name: 'Minor Pent.',    intervals: [0, 3, 5, 7, 10] },
+  { name: 'Blues',          intervals: [0, 3, 5, 6, 7, 10] },
+]

@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { Note, Pattern, PatternType, MOOD_TAGS, USE_TAGS } from '@/types'
+import { Note, Pattern, PatternType, MOOD_TAGS, USE_TAGS, ROOT_NOTES, SCALES } from '@/types'
 import { createClient } from '@/lib/supabase'
 import { downloadMidi } from '@/lib/midi'
 import { ChevronLeft, Download, Save, Trash2, Pencil, MousePointer2, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown } from 'lucide-react'
@@ -90,6 +90,8 @@ function EditorContent() {
   const [loading, setLoading] = useState(!!initialPatternId)
   const [playheadBeat, setPlayheadBeat] = useState<number | null>(null)
   const [selectedIndices, setSelectedIndices] = useState<number[]>([])
+  const [keyRoot, setKeyRoot] = useState<number | null>(null)
+  const [keyScaleIdx, setKeyScaleIdx] = useState(0)
 
   // skip the load-fetch for ids we just created locally (avoids round-trip after auto-save insert)
   const fetchedIdRef = useRef<string | null>(null)
@@ -338,6 +340,38 @@ function EditorContent() {
             </div>
           )}
 
+          {/* Key & Scale */}
+          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">키 / 스케일</p>
+              {keyRoot !== null && (
+                <button onClick={() => setKeyRoot(null)} className="text-[10px] text-zinc-500 hover:text-white">끄기</button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {ROOT_NOTES.map((n, i) => (
+                <button key={n} onClick={() => setKeyRoot(i)}
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                    keyRoot === i ? 'bg-green-500 text-black' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                  }`}
+                >{n}</button>
+              ))}
+            </div>
+            <select
+              value={keyScaleIdx}
+              onChange={e => setKeyScaleIdx(Number(e.target.value))}
+              disabled={keyRoot === null}
+              className="w-full rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-200 disabled:opacity-50"
+            >
+              {SCALES.map((s, i) => <option key={s.name} value={i}>{s.name}</option>)}
+            </select>
+            {keyRoot !== null && (
+              <p className="text-[10px] text-zinc-600">
+                {ROOT_NOTES[keyRoot]} {SCALES[keyScaleIdx].name} — 스케일 안의 음은 초록 배경
+              </p>
+            )}
+          </div>
+
           {/* Transpose */}
           <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">트랜스포즈</p>
@@ -411,6 +445,8 @@ function EditorContent() {
               onCursorChange={setCursorBeat}
               playheadBeat={playheadBeat}
               onSelectionChange={setSelectedIndices}
+              keyRoot={keyRoot}
+              keyScaleIntervals={keyRoot !== null ? SCALES[keyScaleIdx].intervals : null}
             />
           </div>
           <p className="text-xs text-zinc-600">

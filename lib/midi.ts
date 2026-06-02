@@ -24,12 +24,21 @@ export function exportPatternToMidi(pattern: Pattern): Blob {
   return new Blob([bytes.buffer as ArrayBuffer], { type: 'audio/midi' })
 }
 
+function safeFilename(name: string): string {
+  // OS 금지 문자(/ \ : * ? " < > |)와 제어문자 제거, 공백은 _로
+  const cleaned = name
+    .replace(/[\/\\:*?"<>|\x00-\x1f]/g, '')
+    .replace(/\s+/g, '_')
+    .trim()
+  return cleaned || 'pattern'
+}
+
 export function downloadMidi(pattern: Pattern) {
   const blob = exportPatternToMidi(pattern)
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `${pattern.name.replace(/\s+/g, '_')}.mid`
+  a.download = `${safeFilename(pattern.name)}.mid`
   a.click()
   URL.revokeObjectURL(url)
 }

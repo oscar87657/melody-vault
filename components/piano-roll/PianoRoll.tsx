@@ -76,8 +76,14 @@ export default function PianoRoll({
       if (isReadOnly) return
       if (e.key !== 'Delete' && e.key !== 'Backspace') return
       if (selectedRef.current.size === 0) return
-      // Only fire if no input is focused
-      if (document.activeElement?.tagName === 'INPUT') return
+      // Only fire if no input/select/textarea/contenteditable is focused
+      const ae = document.activeElement as HTMLElement | null
+      if (ae && (
+        ae.tagName === 'INPUT' ||
+        ae.tagName === 'TEXTAREA' ||
+        ae.tagName === 'SELECT' ||
+        ae.isContentEditable
+      )) return
       onChange(notesRef.current.filter((_, i) => !selectedRef.current.has(i)))
       setSelected(new Set())
     }

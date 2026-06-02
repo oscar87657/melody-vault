@@ -48,6 +48,13 @@ export default function LibraryPage() {
     setFilterTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])
   }
 
+  useEffect(() => {
+    if (!preview) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreview(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [preview])
+
   const filtered = patterns.filter(p => {
     if (filterType !== 'all' && p.type !== filterType) return false
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false

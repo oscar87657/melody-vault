@@ -41,11 +41,15 @@ function EditorContent() {
     if (!patternId) return
     const supabase = createClient()
     supabase.from('patterns').select('*').eq('id', patternId).single()
-      .then(({ data }: { data: Pattern | null }) => {
+      .then(({ data, error }: { data: Pattern | null; error: { message: string } | null }) => {
+        if (error) console.error('패턴 불러오기 실패:', error.message)
         if (data) {
           setName(data.name); setType(data.type); setNotes(data.notes)
           setBpm(data.bpm); setMeasures(data.measures); setTags(data.tags)
         }
+        setLoading(false)
+      }, (err: unknown) => {
+        console.error('패턴 불러오기 실패:', err)
         setLoading(false)
       })
   }, [patternId])

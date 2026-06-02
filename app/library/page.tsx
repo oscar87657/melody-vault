@@ -24,7 +24,17 @@ export default function LibraryPage() {
     supabase.auth.getUser().then(({ data: { user } }: { data: { user: { id: string } | null } }) => {
       if (!user) { router.push('/auth'); return }
       supabase.from('patterns').select('*').eq('user_id', user.id).order('updated_at', { ascending: false })
-        .then(({ data }: { data: Pattern[] | null }) => { setPatterns(data ?? []); setLoading(false) })
+        .then(({ data, error }: { data: Pattern[] | null; error: { message: string } | null }) => {
+          if (error) console.error('패턴 목록 불러오기 실패:', error.message)
+          setPatterns(data ?? [])
+          setLoading(false)
+        }, (err: unknown) => {
+          console.error('패턴 목록 불러오기 실패:', err)
+          setLoading(false)
+        })
+    }, (err: unknown) => {
+      console.error('인증 확인 실패:', err)
+      setLoading(false)
     })
   }, [router])
 

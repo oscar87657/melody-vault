@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { Pattern, MOOD_TAGS, USE_TAGS } from '@/types'
-import { downloadMidi } from '@/lib/midi'
-import { Plus, Download, Music, LogOut, Search, Pencil, Copy } from 'lucide-react'
+import { downloadMidi, importMidiFile } from '@/lib/midi'
+import { Plus, Download, Music, LogOut, Search, Pencil, Copy, Upload } from 'lucide-react'
 import dynamic from 'next/dynamic'
 
 const PianoRoll = dynamic(() => import('@/components/piano-roll/PianoRoll'), { ssr: false })
@@ -43,6 +43,59 @@ export default function LibraryPage() {
     await supabase.auth.signOut()
     router.push('/auth')
   }
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [dragOver, setDragOver] = useState(false)
+  const [importing, setImporting] = useState(false)
+
+  const handleImport = useCallback(async (file: File) => {
+    setImporting(true)
+    try {
+      const data = await importMidiFile(file)
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push('/auth'); return }
+      const now = new Date().toISOString()
+      const { data: inserted, error } = await supabase
+        .from('patterns')
+        .insert({ user_id: user.id, ...data, created_at: now, updated_at: now })
+        .select()
+        .single()
+      if (error) { console.error('MIDI 임포트 실패:', error.message); alert('MIDI 임포트 실패: ' + error.message); return }
+      if (inserted) setPatterns(prev => [inserted as Pattern, ...prev])
+    } catch (err) {
+      console.error('MIDI 파싱 실패:', err)
+      alert(`"${file.name}" 파일을 읽을 수 없습니다.`)
+    } finally {
+      setImporting(false)
+    }
+  }, [router])
+
+  // Global drag&drop for .mid files
+  useEffect(() => {
+    let counter = 0
+    const isFileDrag = (e: DragEvent) => e.dataTransfer?.types.includes('Files')
+    const onDragEnter = (e: DragEvent) => { if (!isFileDrag(e)) return; counter++; setDragOver(true) }
+    const onDragLeave = () => { counter--; if (counter <= 0) { counter = 0; setDragOver(false) } }
+    const onDragOver = (e: DragEvent) => { if (isFileDrag(e)) e.preventDefault() }
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault()
+      counter = 0
+      setDragOver(false)
+      const files = Array.from(e.dataTransfer?.files ?? []).filter(f => /\.midi?$/i.test(f.name))
+      files.forEach(handleImport)
+    }
+    window.addEventListener('dragenter', onDragEnter)
+    window.addEventListener('dragleave', onDragLeave)
+    window.addEventListener('dragover', onDragOver)
+    window.addEventListener('drop', onDrop)
+    return () => {
+      window.removeEventListener('dragenter', onDragEnter)
+      window.removeEventListener('dragleave', onDragLeave)
+      window.removeEventListener('dragover', onDragOver)
+      window.removeEventListener('drop', onDrop)
+    }
+  }, [handleImport])
 
   const handleDuplicate = async (p: Pattern) => {
     const supabase = createClient()
@@ -107,6 +160,26 @@ export default function LibraryPage() {
           </div>
 
           <div className="flex gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importing}
+              title="MIDI 파일 임포트 (드래그&드롭도 가능)"
+              className="flex items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-300 hover:border-zinc-500 hover:text-white disabled:opacity-50"
+            >
+              <Upload size={14} /> {importing ? '임포트 중...' : 'MIDI 임포트'}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".mid,.midi,audio/midi"
+              multiple
+              hidden
+              onChange={e => {
+                const files = Array.from(e.target.files ?? [])
+                files.forEach(handleImport)
+                e.target.value = ''
+              }}
+            />
             <button
               onClick={() => router.push('/editor?type=chord')}
               className="flex items-center gap-1.5 rounded bg-green-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-green-400"
@@ -207,6 +280,17 @@ export default function LibraryPage() {
           )}
         </main>
       </div>
+
+      {/* Drag&drop overlay */}
+      {dragOver && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="rounded-2xl border-4 border-dashed border-green-400 bg-zinc-900/80 px-12 py-10 text-center">
+            <Upload size={48} className="mx-auto mb-3 text-green-400" />
+            <p className="text-xl font-bold text-green-400">MIDI 파일을 여기에 놓으세요</p>
+            <p className="mt-1 text-xs text-zinc-400">.mid / .midi 파일만 처리됩니다</p>
+          </div>
+        </div>
+      )}
 
       {/* Preview modal */}
       {preview && (

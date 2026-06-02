@@ -100,6 +100,24 @@ export default function PianoRoll({
         return
       }
 
+      // Arrow up/down → transpose by semitone (Shift = octave)
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        if (notesRef.current.length === 0) return
+        e.preventDefault()
+        const delta = (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 12 : 1)
+        const targets = selectedRef.current.size > 0
+          ? selectedRef.current
+          : new Set(notesRef.current.map((_, i) => i))
+        const next = notesRef.current.map((n, i) =>
+          targets.has(i)
+            ? { ...n, pitch: Math.max(VISIBLE_MIN_PITCH, Math.min(VISIBLE_MAX_PITCH, n.pitch + delta)) }
+            : n
+        )
+        onChange(next)
+        onCommit?.()
+        return
+      }
+
       if (!(e.ctrlKey || e.metaKey)) return
       const key = e.key.toLowerCase()
 

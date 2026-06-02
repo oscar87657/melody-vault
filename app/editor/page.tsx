@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic'
 import { Note, Pattern, PatternType, MOOD_TAGS, USE_TAGS } from '@/types'
 import { createClient } from '@/lib/supabase'
 import { downloadMidi } from '@/lib/midi'
-import { ChevronLeft, Download, Save, Trash2, Pencil, MousePointer2 } from 'lucide-react'
+import { ChevronLeft, Download, Save, Trash2, Pencil, MousePointer2, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown } from 'lucide-react'
 import ChordInput from '@/components/piano-roll/ChordInput'
 import PlaybackControls from '@/components/piano-roll/PlaybackControls'
 import { type Tool } from '@/components/piano-roll/PianoRoll'
@@ -117,6 +117,15 @@ function EditorContent() {
     setNotes(prev => [...prev, ...chordNotes])
     commitNotes()
     setCursorBeat(prev => prev + duration)
+  }, [setNotes, commitNotes])
+
+  // VISIBLE_MIN_PITCH=36 (C2), VISIBLE_MAX_PITCH=96 (C7) — kept in sync with PianoRoll
+  const transpose = useCallback((semitones: number) => {
+    setNotes(prev => {
+      if (prev.length === 0) return prev
+      return prev.map(n => ({ ...n, pitch: Math.max(36, Math.min(96, n.pitch + semitones)) }))
+    })
+    commitNotes()
   }, [setNotes, commitNotes])
 
   const toggleTag = (tag: string) =>
@@ -302,6 +311,30 @@ function EditorContent() {
             onCursorChange={setCursorBeat}
             maxBeat={measures * 4}
           />
+
+          {/* Transpose */}
+          <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">트랜스포즈</p>
+            <div className="flex gap-1">
+              <button onClick={() => transpose(-12)} title="옥타브 아래 (Shift+↓)"
+                className="flex flex-1 items-center justify-center gap-0.5 rounded bg-zinc-800 py-1 text-xs text-zinc-300 hover:bg-zinc-700">
+                <ChevronsDown size={12} /> 옥
+              </button>
+              <button onClick={() => transpose(-1)} title="반음 아래 (↓)"
+                className="flex flex-1 items-center justify-center gap-0.5 rounded bg-zinc-800 py-1 text-xs text-zinc-300 hover:bg-zinc-700">
+                <ChevronDown size={12} /> 반
+              </button>
+              <button onClick={() => transpose(1)} title="반음 위 (↑)"
+                className="flex flex-1 items-center justify-center gap-0.5 rounded bg-zinc-800 py-1 text-xs text-zinc-300 hover:bg-zinc-700">
+                <ChevronUp size={12} /> 반
+              </button>
+              <button onClick={() => transpose(12)} title="옥타브 위 (Shift+↑)"
+                className="flex flex-1 items-center justify-center gap-0.5 rounded bg-zinc-800 py-1 text-xs text-zinc-300 hover:bg-zinc-700">
+                <ChevronsUp size={12} /> 옥
+              </button>
+            </div>
+            <p className="text-[10px] text-zinc-600">선택 노트 없으면 전체 이동</p>
+          </div>
 
           <button
             onClick={() => {

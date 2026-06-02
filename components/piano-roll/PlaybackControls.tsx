@@ -235,6 +235,26 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
     return () => { cancelAnimationFrame(raf); onPlayheadChange(null) }
   }, [isPlaying, bpm, onPlayheadChange])
 
+  const playRef = useRef<() => void>(() => {})
+
+  // Space → play/stop toggle (when no input is focused)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return
+      const ae = document.activeElement as HTMLElement | null
+      if (ae && (
+        ae.tagName === 'INPUT' ||
+        ae.tagName === 'TEXTAREA' ||
+        ae.tagName === 'SELECT' ||
+        ae.isContentEditable
+      )) return
+      e.preventDefault()
+      playRef.current()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   const play = useCallback(async () => {
     if (isPlaying) { stop(); return }
     if (notes.length === 0) return
@@ -256,16 +276,19 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
       }, note.startBeat * spb)
     })
 
-    transport.schedule(() => setIsPlaying(false), maxEnd * spb + 0.2)
+    transport.schedule(() => { setIsPlaying(false); onPlayheadChange?.(null) }, maxEnd * spb + 0.2)
     transport.start()
     setIsPlaying(true)
-  }, [isPlaying, notes, bpm, stop])
+  }, [isPlaying, notes, bpm, stop, onPlayheadChange])
+
+  playRef.current = play
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2">
       {/* Play / Stop */}
       <button
         onClick={play}
+        title="Space"
         className={`flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-semibold transition-colors ${
           isPlaying ? 'bg-red-500 text-white hover:bg-red-400' : 'bg-green-500 text-black hover:bg-green-400'
         }`}

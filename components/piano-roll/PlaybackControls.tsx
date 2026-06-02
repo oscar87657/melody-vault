@@ -309,14 +309,21 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
           const p = note.pitch
           const v = Math.max(0.1, note.velocity / 127)
           try {
+            // Kick / Bass drum
             if (p === 35 || p === 36) kick.triggerAttackRelease('C2', '8n', time, v)
+            // Snare / Electric snare
             else if (p === 38 || p === 40) snare.triggerAttackRelease('16n', time, v)
-            else if (p === 42 || p === 44) hihat.triggerAttackRelease('32n', time, v * 0.6)
-            else if (p === 46) hihat.triggerAttackRelease('8n', time, v * 0.7)
-            else if (p === 49 || p === 51 || p === 57) hihat.triggerAttackRelease('4n', time, v)
-            else if (p >= 41 && p <= 50) kick.triggerAttackRelease(Tone.Frequency(p, 'midi').toFrequency(), '8n', time, v * 0.8)  // toms
-            else if (p === 39) snare.triggerAttackRelease('16n', time, v * 0.8)  // clap
-          } catch { /* disposed */ }
+            // Hand clap (treat as soft snare)
+            else if (p === 39) snare.triggerAttackRelease('16n', time, v * 0.8)
+            // Closed / pedal hi-hat — MetalSynth: (note, duration, time, velocity)
+            else if (p === 42 || p === 44) hihat.triggerAttackRelease('C5', '32n', time, v * 0.6)
+            // Open hi-hat
+            else if (p === 46) hihat.triggerAttackRelease('C5', '8n', time, v * 0.7)
+            // Crash / ride / crash2
+            else if (p === 49 || p === 51 || p === 57) hihat.triggerAttackRelease('C6', '4n', time, v)
+            // Toms (low → high pitched kick voice)
+            else if (p >= 41 && p <= 50) kick.triggerAttackRelease(Tone.Frequency(p, 'midi').toFrequency(), '8n', time, v * 0.8)
+          } catch (err) { console.warn('drum schedule:', err) }
         }, note.startBeat * spb)
       })
     } else {

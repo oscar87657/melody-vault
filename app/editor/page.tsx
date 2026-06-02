@@ -357,6 +357,7 @@ function EditorContent() {
             {tool === 'draw'
               ? '클릭: 노트 추가 | 우클릭: 삭제 | 끝 드래그: 길이 조절 | 노트 드래그: 이동'
               : '클릭: 선택 | 드래그: 다중 선택 | Shift+클릭: 선택 추가 | Delete: 삭제 | 상단 눈금자 클릭: 커서 이동'}
+            <span className="ml-2 text-zinc-700">· Ctrl+C/V/X/A · Ctrl+Z/Y · Space · Ctrl+S</span>
           </p>
         </main>
       </div>

@@ -74,13 +74,15 @@ export default function PianoRoll({
   const canvasWidth = KEY_WIDTH + totalBeats * BEAT_WIDTH
   const canvasHeight = RULER_HEIGHT + VISIBLE_RANGE * ROW_HEIGHT
 
-  // Delete selected notes via keyboard
+  // In-memory clipboard (shared across PianoRoll instances within a mount)
+  const clipboardRef = useRef<Note[]>([])
+  const cursorBeatRef = useRef(cursorBeat ?? 0)
+  useEffect(() => { cursorBeatRef.current = cursorBeat ?? 0 }, [cursorBeat])
+
+  // Keyboard shortcuts: Delete, Ctrl+C/V/A
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (isReadOnly) return
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return
-      if (selectedRef.current.size === 0) return
-      // Only fire if no input/select/textarea/contenteditable is focused
       const ae = document.activeElement as HTMLElement | null
       if (ae && (
         ae.tagName === 'INPUT' ||
@@ -88,9 +90,62 @@ export default function PianoRoll({
         ae.tagName === 'SELECT' ||
         ae.isContentEditable
       )) return
-      onChange(notesRef.current.filter((_, i) => !selectedRef.current.has(i)))
-      setSelected(new Set())
-      onCommit?.()
+
+      // Delete / Backspace → remove selected notes
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedRef.current.size === 0) return
+        onChange(notesRef.current.filter((_, i) => !selectedRef.current.has(i)))
+        setSelected(new Set())
+        onCommit?.()
+        return
+      }
+
+      if (!(e.ctrlKey || e.metaKey)) return
+      const key = e.key.toLowerCase()
+
+      // Ctrl/Cmd+A → select all
+      if (key === 'a') {
+        e.preventDefault()
+        setSelected(new Set(notesRef.current.map((_, i) => i)))
+        return
+      }
+
+      // Ctrl/Cmd+C → copy selected to clipboard
+      if (key === 'c') {
+        if (selectedRef.current.size === 0) return
+        e.preventDefault()
+        clipboardRef.current = Array.from(selectedRef.current)
+          .sort((a, b) => a - b)
+          .map(i => ({ ...notesRef.current[i] }))
+        return
+      }
+
+      // Ctrl/Cmd+X → cut
+      if (key === 'x') {
+        if (selectedRef.current.size === 0) return
+        e.preventDefault()
+        clipboardRef.current = Array.from(selectedRef.current)
+          .sort((a, b) => a - b)
+          .map(i => ({ ...notesRef.current[i] }))
+        onChange(notesRef.current.filter((_, i) => !selectedRef.current.has(i)))
+        setSelected(new Set())
+        onCommit?.()
+        return
+      }
+
+      // Ctrl/Cmd+V → paste at cursor (or after rightmost existing if cursor is 0)
+      if (key === 'v') {
+        if (clipboardRef.current.length === 0) return
+        e.preventDefault()
+        const minBeat = Math.min(...clipboardRef.current.map(n => n.startBeat))
+        const offset = cursorBeatRef.current - minBeat
+        const pasted = clipboardRef.current.map(n => ({ ...n, startBeat: Math.max(0, n.startBeat + offset) }))
+        const startIdx = notesRef.current.length
+        onChange([...notesRef.current, ...pasted])
+        setSelected(new Set(pasted.map((_, i) => startIdx + i)))
+        onCommit?.()
+        return
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)

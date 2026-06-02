@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase'
 import { Pattern, Folder, MOOD_TAGS, USE_TAGS } from '@/types'
 import { downloadMidi, downloadWav, importMidiFile } from '@/lib/midi'
 import { buildSamplePatterns } from '@/lib/sample-patterns'
-import { Plus, Download, Music, LogOut, Search, Pencil, Copy, Upload, Share2, Folder as FolderIcon, FolderPlus, Sparkles } from 'lucide-react'
+import { Plus, Download, Music, LogOut, Search, Pencil, Copy, Upload, Share2, Folder as FolderIcon, FolderPlus, Sparkles, Trash2 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 
 const PianoRoll = dynamic(() => import('@/components/piano-roll/PianoRoll'), { ssr: false })
@@ -66,6 +66,15 @@ export default function LibraryPage() {
     setFolders(prev => prev.filter(f => f.id !== folderId))
     setPatterns(prev => prev.map(p => p.folder_id === folderId ? { ...p, folder_id: null } : p))
     if (filterFolder === folderId) setFilterFolder('all')
+  }
+
+  const handleDeletePattern = async (p: Pattern) => {
+    if (!confirm(`"${p.name}"을(를) 삭제할까요? 되돌릴 수 없습니다.`)) return
+    const supabase = createClient()
+    const { error } = await supabase.from('patterns').delete().eq('id', p.id)
+    if (error) { alert('삭제 실패: ' + error.message); return }
+    setPatterns(prev => prev.filter(x => x.id !== p.id))
+    if (preview?.id === p.id) setPreview(null)
   }
 
   const handleMoveToFolder = async (patternId: string, folderId: string | null) => {
@@ -144,15 +153,36 @@ export default function LibraryPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/auth'); return }
       const now = new Date().toISOString()
-      const payload = samples.map(s => ({
+      const toRow = (s: ReturnType<typeof buildSamplePatterns>[number]) => ({
         ...s,
         user_id: user.id,
         created_at: now,
         updated_at: now,
-      }))
-      const { data, error } = await supabase.from('patterns').insert(payload).select()
-      if (error) { alert('샘플 추가 실패: ' + error.message); return }
-      if (data) setPatterns(prev => [...(data as Pattern[]), ...prev])
+      })
+
+      // drum 타입은 DB 마이그레이션 필요. 코드/멜로디부터 먼저 넣고 drum은 따로 시도해서
+      // 실패해도 코드/멜로디는 보존되도록 분리한다.
+      const nonDrum = samples.filter(s => s.type !== 'drum')
+      const drum = samples.filter(s => s.type === 'drum')
+
+      const { data: nonData, error: nonErr } = await supabase
+        .from('patterns').insert(nonDrum.map(toRow)).select()
+      if (nonErr) {
+        alert('샘플 추가 실패: ' + nonErr.message)
+        return
+      }
+      if (nonData) setPatterns(prev => [...(nonData as Pattern[]), ...prev])
+
+      const { data: drumData, error: drumErr } = await supabase
+        .from('patterns').insert(drum.map(toRow)).select()
+      if (drumErr) {
+        const msg = drumErr.message.includes('patterns_type_check')
+          ? `코드/멜로디 ${nonDrum.length}개는 추가됐어요.\n\n드럼 ${drum.length}개는 DB 마이그레이션이 필요합니다. Supabase SQL Editor에서 아래를 실행하세요:\n\nalter table patterns drop constraint if exists patterns_type_check;\nalter table patterns add constraint patterns_type_check check (type in ('chord', 'melody', 'drum'));`
+          : `드럼 패턴 추가 실패: ${drumErr.message}`
+        alert(msg)
+        return
+      }
+      if (drumData) setPatterns(prev => [...(drumData as Pattern[]), ...prev])
     } finally {
       setSeeding(false)
     }
@@ -405,6 +435,7 @@ export default function LibraryPage() {
                   }}
                   onDuplicate={() => handleDuplicate(pattern)}
                   onShare={() => handleShare(pattern)}
+                  onDelete={() => handleDeletePattern(pattern)}
                   folders={folders}
                   onMoveToFolder={(fid) => handleMoveToFolder(pattern.id, fid)}
                   isPreviewOpen={preview?.id === pattern.id}
@@ -446,7 +477,7 @@ export default function LibraryPage() {
 }
 
 function PatternCard({
-  pattern, onEdit, onPreview, onDownload, onDownloadWav, onDuplicate, onShare,
+  pattern, onEdit, onPreview, onDownload, onDownloadWav, onDuplicate, onShare, onDelete,
   folders, onMoveToFolder, isPreviewOpen
 }: {
   pattern: Pattern
@@ -456,6 +487,7 @@ function PatternCard({
   onDownloadWav: () => void
   onDuplicate: () => void
   onShare: () => void
+  onDelete: () => void
   folders: Folder[]
   onMoveToFolder: (folderId: string | null) => void
   isPreviewOpen: boolean
@@ -494,6 +526,10 @@ function PatternCard({
           <button onClick={onShare} title="공유 링크 복사"
             className={`rounded p-1 hover:bg-zinc-800 hover:text-white ${pattern.share_token ? 'text-green-400' : 'text-zinc-500'}`}>
             <Share2 size={14} />
+          </button>
+          <button onClick={onDelete} title="삭제"
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-red-400">
+            <Trash2 size={14} />
           </button>
         </div>
       </div>

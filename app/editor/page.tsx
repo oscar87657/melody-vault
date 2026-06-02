@@ -306,15 +306,15 @@ function EditorContent() {
           {/* Type / measures / snap / tool */}
           <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 space-y-2">
             <div className="flex gap-2">
-              {(['chord', 'melody'] as PatternType[]).map(t => (
+              {(['chord', 'melody', 'drum'] as PatternType[]).map(t => (
                 <button
                   key={t}
-                  onClick={() => { setType(t); setMeasures(t === 'chord' ? 4 : 2) }}
+                  onClick={() => { setType(t); setMeasures(t === 'chord' ? 4 : t === 'drum' ? 1 : 2) }}
                   className={`flex-1 rounded py-1 text-xs font-medium transition-colors ${
                     type === t ? 'bg-green-500 text-black' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
                   }`}
                 >
-                  {t === 'chord' ? '코드' : '멜로디'}
+                  {t === 'chord' ? '코드' : t === 'melody' ? '멜로디' : '드럼'}
                 </button>
               ))}
             </div>
@@ -360,7 +360,45 @@ function EditorContent() {
             </div>
           </div>
 
-          {/* Chord progression — text input */}
+          {/* Drum quick-add helpers */}
+          {type === 'drum' && (
+            <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">드럼 빠른 입력</p>
+              <p className="text-[10px] text-zinc-600">선택한 줄에 매 박마다 노트 추가</p>
+              {[
+                { pitch: 36, label: '킥 (Kick)' },
+                { pitch: 38, label: '스네어 (Snare)' },
+                { pitch: 42, label: '하이햇 닫음 (HH Cl)' },
+                { pitch: 46, label: '하이햇 열음 (HH Op)' },
+                { pitch: 49, label: '크래시 (Crash)' },
+              ].map(d => (
+                <div key={d.pitch} className="flex gap-1">
+                  <span className="flex-1 text-[10px] text-zinc-400">{d.label}</span>
+                  {[1, 2, 4].map(every => (
+                    <button key={every}
+                      onClick={() => {
+                        const total = measures * 4
+                        const newNotes: Note[] = []
+                        for (let b = 0; b < total; b += every) {
+                          newNotes.push({ pitch: d.pitch, startBeat: b, duration: 0.25, velocity: 100 })
+                        }
+                        setNotes(prev => [...prev, ...newNotes])
+                        commitNotes()
+                      }}
+                      className="rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] text-zinc-300 hover:bg-green-500 hover:text-black"
+                      title={`${every}박마다`}
+                    >
+                      /{every}
+                    </button>
+                  ))}
+                </div>
+              ))}
+              <p className="text-[10px] text-zinc-600">캔버스에서 직접 클릭으로 추가도 가능</p>
+            </div>
+          )}
+
+          {/* Chord progression — text input (hidden in drum mode) */}
+          {type !== 'drum' && (
           <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-3 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">코드 진행 빠른 입력</p>
             <input
@@ -385,14 +423,17 @@ function EditorContent() {
             </button>
             <p className="text-[10px] text-zinc-600">공백/-/, 로 구분. Am Dm7 G7 Cmaj7</p>
           </div>
+          )}
 
-          {/* Chord input */}
-          <ChordInput
-            onAddChord={handleAddChord}
-            currentBeat={cursorBeat}
-            onCursorChange={setCursorBeat}
-            maxBeat={measures * 4}
-          />
+          {/* Chord input (hidden in drum mode) */}
+          {type !== 'drum' && (
+            <ChordInput
+              onAddChord={handleAddChord}
+              currentBeat={cursorBeat}
+              onCursorChange={setCursorBeat}
+              maxBeat={measures * 4}
+            />
+          )}
 
           {/* Velocity (강약) — only when notes are selected */}
           {selectedIndices.length > 0 && (
@@ -544,7 +585,7 @@ function EditorContent() {
 
         {/* Main */}
         <main className="flex flex-1 flex-col gap-3 overflow-hidden p-3">
-          <PlaybackControls notes={notes} bpm={bpm} onBpmChange={setBpm} onPlayheadChange={setPlayheadBeat} />
+          <PlaybackControls notes={notes} bpm={bpm} onBpmChange={setBpm} onPlayheadChange={setPlayheadBeat} isDrum={type === 'drum'} />
           <div className="flex-1 overflow-auto">
             <PianoRoll
               notes={notes}
@@ -557,8 +598,9 @@ function EditorContent() {
               onCursorChange={setCursorBeat}
               playheadBeat={playheadBeat}
               onSelectionChange={setSelectedIndices}
-              keyRoot={keyRoot}
-              keyScaleIntervals={keyRoot !== null ? SCALES[keyScaleIdx].intervals : null}
+              keyRoot={type === 'drum' ? null : keyRoot}
+              keyScaleIntervals={type === 'drum' ? null : (keyRoot !== null ? SCALES[keyScaleIdx].intervals : null)}
+              isDrum={type === 'drum'}
             />
           </div>
           <p className="text-xs text-zinc-600">

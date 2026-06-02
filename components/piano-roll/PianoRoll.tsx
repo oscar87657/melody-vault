@@ -30,6 +30,17 @@ interface PianoRollProps {
   keyRoot?: number | null
   /** 스케일에 속하는 음정 집합 (semitones from root, 0..11) */
   keyScaleIntervals?: number[] | null
+  /** drum 모드: 키 라벨이 드럼 이름으로 바뀜 */
+  isDrum?: boolean
+}
+
+const DRUM_NAMES: Record<number, string> = {
+  35: 'Kick A', 36: 'Kick',
+  37: 'Stick', 39: 'Clap',
+  38: 'Snare', 40: 'Snare E',
+  41: 'Tom L', 43: 'Tom L', 45: 'Tom M', 47: 'Tom M', 48: 'Tom H', 50: 'Tom H',
+  42: 'HH Cl', 44: 'HH Pd', 46: 'HH Op',
+  49: 'Crash', 51: 'Ride', 57: 'Crash2',
 }
 
 type DragState =
@@ -66,6 +77,7 @@ export default function PianoRoll({
   isReadOnly = false, tool = 'draw', cursorBeat, onCursorChange,
   playheadBeat = null, onSelectionChange,
   keyRoot = null, keyScaleIntervals = null,
+  isDrum = false,
 }: PianoRollProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const dragRef = useRef<DragState>({ kind: 'none' })
@@ -205,12 +217,14 @@ export default function PianoRoll({
     // === PIANO KEYS ===
     for (let pitch = VISIBLE_MIN_PITCH; pitch <= VISIBLE_MAX_PITCH; pitch++) {
       const y = pitchToY(pitch)
-      ctx.fillStyle = isBlackKey(pitch) ? '#1a1a1a' : '#2a2a2a'
+      const isDrumRow = isDrum && DRUM_NAMES[pitch] !== undefined
+      ctx.fillStyle = isDrumRow ? '#332a1a' : isBlackKey(pitch) ? '#1a1a1a' : '#2a2a2a'
       ctx.fillRect(0, y, KEY_WIDTH, ROW_HEIGHT)
-      if (pitch % 12 === 0) {
-        ctx.fillStyle = '#888'
+      const label = isDrum ? DRUM_NAMES[pitch] : (pitch % 12 === 0 ? pitchToNoteName(pitch) : null)
+      if (label) {
+        ctx.fillStyle = isDrumRow ? '#fbbf24' : '#888'
         ctx.font = '9px monospace'
-        ctx.fillText(pitchToNoteName(pitch), 2, y + ROW_HEIGHT - 3)
+        ctx.fillText(label, 2, y + ROW_HEIGHT - 3)
       }
       ctx.strokeStyle = '#111'
       ctx.lineWidth = 0.5
@@ -310,7 +324,7 @@ export default function PianoRoll({
       ctx.moveTo(px - 5, 0); ctx.lineTo(px + 5, 0); ctx.lineTo(px, 6)
       ctx.closePath(); ctx.fill()
     }
-  }, [canvasWidth, canvasHeight, totalBeats, selected, cursorBeat, playheadBeat, isReadOnly, keyRoot, keyScaleIntervals])
+  }, [canvasWidth, canvasHeight, totalBeats, selected, cursorBeat, playheadBeat, isReadOnly, keyRoot, keyScaleIntervals, isDrum])
 
   useEffect(() => { draw() }, [draw, notes])
 

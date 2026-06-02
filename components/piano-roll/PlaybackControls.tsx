@@ -158,9 +158,10 @@ interface PlaybackControlsProps {
   bpm: number
   onBpmChange: (bpm: number) => void
   onPlayheadChange?: (beat: number | null) => void
+  isDrum?: boolean
 }
 
-export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadChange }: PlaybackControlsProps) {
+export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadChange, isDrum = false }: PlaybackControlsProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [volume, setVolume] = useState(-20)
   const [instrumentKey, setInstrumentKey] = useState('piano')
@@ -172,6 +173,7 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
   const isMetronomeRef = useRef(isMetronome)
   useEffect(() => { isMetronomeRef.current = isMetronome }, [isMetronome])
   const metronomeRef = useRef<{ high: Tone.Synth; low: Tone.Synth } | null>(null)
+  const drumKitRef = useRef<{ kick: Tone.MembraneSynth; snare: Tone.NoiseSynth; hihat: Tone.MetalSynth } | null>(null)
 
   const synthRef  = useRef<AnyInstrument | null>(null)
   const volRef    = useRef<Tone.Volume | null>(null)
@@ -228,6 +230,10 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
     metronomeRef.current?.high.dispose()
     metronomeRef.current?.low.dispose()
     metronomeRef.current = null
+    drumKitRef.current?.kick.dispose()
+    drumKitRef.current?.snare.dispose()
+    drumKitRef.current?.hihat.dispose()
+    drumKitRef.current = null
     setIsPlaying(false)
     onPlayheadChange?.(null)
   }, [onPlayheadChange])
@@ -277,16 +283,51 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
     transport.cancel()
     transport.stop()
 
-    const synth = synthRef.current!
     const spb = 60 / bpm
     const maxEnd = Math.max(...notes.map(n => n.startBeat + n.duration))
 
-    notes.forEach(note => {
-      const freq = Tone.Frequency(note.pitch, 'midi').toFrequency()
-      transport.schedule(() => {
-        try { synth.triggerAttackRelease(freq, note.duration * spb * 0.92) } catch { /* disposed */ }
-      }, note.startBeat * spb)
-    })
+    if (isDrum && limiterRef.current) {
+      const kick = new Tone.MembraneSynth({
+        pitchDecay: 0.05, octaves: 6,
+        envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.4 },
+      }).connect(limiterRef.current)
+      const snare = new Tone.NoiseSynth({
+        noise: { type: 'white' },
+        envelope: { attack: 0.001, decay: 0.13, sustain: 0 },
+      }).connect(limiterRef.current)
+      const hihat = new Tone.MetalSynth({
+        envelope: { attack: 0.001, decay: 0.05, release: 0.01 },
+        harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5,
+      }).connect(limiterRef.current)
+      kick.volume.value = -4
+      snare.volume.value = -10
+      hihat.volume.value = -22
+      drumKitRef.current = { kick, snare, hihat }
+
+      notes.forEach(note => {
+        transport.schedule((time) => {
+          const p = note.pitch
+          const v = Math.max(0.1, note.velocity / 127)
+          try {
+            if (p === 35 || p === 36) kick.triggerAttackRelease('C2', '8n', time, v)
+            else if (p === 38 || p === 40) snare.triggerAttackRelease('16n', time, v)
+            else if (p === 42 || p === 44) hihat.triggerAttackRelease('32n', time, v * 0.6)
+            else if (p === 46) hihat.triggerAttackRelease('8n', time, v * 0.7)
+            else if (p === 49 || p === 51 || p === 57) hihat.triggerAttackRelease('4n', time, v)
+            else if (p >= 41 && p <= 50) kick.triggerAttackRelease(Tone.Frequency(p, 'midi').toFrequency(), '8n', time, v * 0.8)  // toms
+            else if (p === 39) snare.triggerAttackRelease('16n', time, v * 0.8)  // clap
+          } catch { /* disposed */ }
+        }, note.startBeat * spb)
+      })
+    } else {
+      const synth = synthRef.current!
+      notes.forEach(note => {
+        const freq = Tone.Frequency(note.pitch, 'midi').toFrequency()
+        transport.schedule((time) => {
+          try { synth.triggerAttackRelease(freq, note.duration * spb * 0.92, time, note.velocity / 127) } catch { /* disposed */ }
+        }, note.startBeat * spb)
+      })
+    }
 
     if (isLoopRef.current) {
       transport.loop = true
@@ -320,7 +361,7 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
 
     transport.start()
     setIsPlaying(true)
-  }, [isPlaying, notes, bpm, stop, onPlayheadChange])
+  }, [isPlaying, notes, bpm, stop, onPlayheadChange, isDrum])
 
   useEffect(() => { playRef.current = play }, [play])
 

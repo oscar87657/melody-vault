@@ -168,6 +168,10 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
   const [isLoop, setIsLoop] = useState(false)
   const isLoopRef = useRef(isLoop)
   useEffect(() => { isLoopRef.current = isLoop }, [isLoop])
+  const [isMetronome, setIsMetronome] = useState(false)
+  const isMetronomeRef = useRef(isMetronome)
+  useEffect(() => { isMetronomeRef.current = isMetronome }, [isMetronome])
+  const metronomeRef = useRef<{ high: Tone.Synth; low: Tone.Synth } | null>(null)
 
   const synthRef  = useRef<AnyInstrument | null>(null)
   const volRef    = useRef<Tone.Volume | null>(null)
@@ -221,6 +225,9 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
     transport.stop()
     transport.cancel()
     transport.loop = false
+    metronomeRef.current?.high.dispose()
+    metronomeRef.current?.low.dispose()
+    metronomeRef.current = null
     setIsPlaying(false)
     onPlayheadChange?.(null)
   }, [onPlayheadChange])
@@ -289,6 +296,28 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
       transport.loop = false
       transport.schedule(() => { setIsPlaying(false); onPlayheadChange?.(null) }, maxEnd * spb + 0.2)
     }
+
+    if (isMetronomeRef.current && limiterRef.current) {
+      const high = new Tone.Synth({
+        oscillator: { type: 'square' },
+        envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.05 },
+      }).connect(limiterRef.current)
+      const low = new Tone.Synth({
+        oscillator: { type: 'square' },
+        envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.05 },
+      }).connect(limiterRef.current)
+      high.volume.value = -14
+      low.volume.value = -20
+      metronomeRef.current = { high, low }
+      let beatCount = 0
+      transport.scheduleRepeat((time) => {
+        const isStrong = beatCount % 4 === 0  // 매 마디 첫 박
+        if (isStrong) high.triggerAttackRelease('C6', '32n', time)
+        else low.triggerAttackRelease('C5', '32n', time)
+        beatCount++
+      }, '4n', 0)
+    }
+
     transport.start()
     setIsPlaying(true)
   }, [isPlaying, notes, bpm, stop, onPlayheadChange])
@@ -317,6 +346,16 @@ export default function PlaybackControls({ notes, bpm, onBpmChange, onPlayheadCh
         }`}
       >
         <Repeat size={14} />
+      </button>
+
+      <button
+        onClick={() => setIsMetronome(p => !p)}
+        title={isMetronome ? '메트로놈 끄기' : '메트로놈 켜기 (박자 클릭)'}
+        className={`flex items-center rounded px-2 py-1.5 text-sm font-bold transition-colors ${
+          isMetronome ? 'bg-green-500/20 text-green-400' : 'bg-zinc-800 text-zinc-500 hover:text-white'
+        }`}
+      >
+        ♩
       </button>
 
       {/* BPM */}

@@ -233,8 +233,6 @@ export default function PianoRoll({
       const idx = getNoteAt(x, y)
       if (idx !== -1) {
         if (selectedRef.current.has(idx) && selectedRef.current.size > 1) {
-          const keep = new Set(selectedRef.current)
-          const next = notesRef.current.filter((_, i) => { if (keep.has(i)) { keep.delete(i); return false } return true })
           onChange(notesRef.current.filter((_, i) => !selectedRef.current.has(i)))
           setSelected(new Set())
         } else {
